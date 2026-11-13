@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#5b3df5">
+  <title>Design — e-Mitra</title>
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.1-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10.5" cy="7" r="1.2"/><circle cx="15.5" cy="7.5" r="1.2"/></svg></span>
+      <span class="brand-name" data-shop-name>e-Mitra</span>
+    </a>
+    <button class="lang-toggle" id="langToggle" type="button" data-i18n="lang_switch">हिंदी</button>
+  </header>
+
+  <main class="container">
+    <div class="stepbar" id="stepbar">
+      <div class="s" data-i18n="step_details">Details</div>
+      <div class="s" data-i18n="step_brief">Requirement</div>
+      <div class="s" data-i18n="step_files">Files</div>
+      <div class="s" data-i18n="step_pay">Pay</div>
+    </div>
+
+    <!-- Step 1 -->
+    <section data-step="1">
+      <form class="card" id="detailsForm" novalidate>
+        <h2 data-i18n="details_title">Your details</h2>
+        <div class="field">
+          <label for="name" data-i18n="f_name">Full name</label>
+          <input id="name" type="text" autocomplete="name" maxlength="60" data-i18n-ph="f_name_ph">
+          <span class="err" data-i18n="err_name"></span>
+        </div>
+        <div class="field">
+          <label for="phone" data-i18n="f_phone">Mobile number</label>
+          <input id="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="14" data-i18n-ph="f_phone_ph">
+          <span class="err" data-i18n="err_phone"></span>
+        </div>
+        <div class="field">
+          <label for="email" data-i18n="f_email">Email (optional)</label>
+          <input id="email" type="email" autocomplete="email" maxlength="120">
+        </div>
+        <button class="btn btn-primary btn-lg btn-block" type="submit" data-i18n="next">Continue</button>
+      </form>
+    </section>
+
+    <!-- Step 2 -->
+    <section data-step="2" class="hidden">
+      <form class="card" id="briefForm" novalidate>
+        <h2 data-i18n="brief_title">What do you need?</h2>
+        <div class="field" id="serviceField">
+          <div class="chips" id="services"></div>
+          <span class="err" data-i18n="err_service"></span>
+        </div>
+
+        <div class="field" id="pkgField">
+          <span class="label" data-i18n="package_title">Choose a package</span>
+          <div class="pkg-pick" id="pkgPick"></div>
+          <span class="err" data-i18n="err_package"></span>
+        </div>
+
+        <div class="field">
+          <label for="title" data-i18n="f_title">Title</label>
+          <input id="title" type="text" maxlength="150" data-i18n-ph="f_title_ph">
+          <span class="err" data-i18n="err_title"></span>
+        </div>
+        <div class="field">
+          <label for="desc" data-i18n="f_desc">Describe</label>
+          <textarea id="desc" maxlength="3000" data-i18n-ph="f_desc_ph"></textarea>
+          <span class="err" data-i18n="err_desc"></span>
+        </div>
+        <div class="field">
+          <label for="textContent" data-i18n="f_text">Text</label>
+          <textarea id="textContent" maxlength="3000" data-i18n-ph="f_text_ph"></textarea>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="size" data-i18n="f_size">Size</label>
+            <select id="size">
+              <option value="A4" data-i18n="size_a4">A4</option>
+              <option value="A3" data-i18n="size_a3">A3</option>
+              <option value="Visiting card" data-i18n="size_card">Visiting card</option>
+              <option value="Banner/flex" data-i18n="size_flex">Banner / flex</option>
+              <option value="Square" data-i18n="size_square">Square</option>
+              <option value="Other" data-i18n="size_other">Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="customSize" data-i18n="f_size_custom">Exact size</label>
+            <input id="customSize" type="text" maxlength="60" data-i18n-ph="f_size_custom_ph">
+          </div>
+          <div class="field">
+            <label for="colors" data-i18n="f_colors">Colours</label>
+            <input id="colors" type="text" maxlength="120" data-i18n-ph="f_colors_ph">
+          </div>
+          <div class="field">
+            <label for="deadline" data-i18n="f_deadline">Needed by</label>
+            <input id="deadline" type="date">
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" type="button" data-back="1" data-i18n="back">Back</button>
+          <button class="btn btn-primary btn-lg" type="submit" data-i18n="next">Continue</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Step 3 -->
+    <section data-step="3" class="hidden">
+      <div class="card">
+        <h2 data-i18n="files_title">Your materials</h2>
+        <label class="dropzone compact" style="margin-top:12px">
+          <input type="file" id="resInput" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.psd,.zip">
+          <span class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></span>
+          <span><b data-i18n="res_title">Photos, logo & documents</b><br><small data-i18n="res_sub"></small></span>
+        </label>
+        <div class="file-list" id="resList"></div>
+
+        <label class="dropzone compact" style="margin-top:18px">
+          <input type="file" id="refInput" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.gif">
+          <span class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg></span>
+          <span><b data-i18n="ref_title">Reference design (optional)</b><br><small data-i18n="ref_sub"></small></span>
+        </label>
+        <div class="file-list" id="refList"></div>
+      </div>
+
+      <div class="card">
+        <h2 data-i18n="summary">Summary</h2>
+        <div class="summary-list" id="summary"></div>
+        <div id="uploadProgress" class="hidden">
+          <div class="progress"><div id="progressBar"></div></div>
+          <p class="muted small" id="progressText" style="margin-top:8px"></p>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:16px">
+        <button class="btn btn-ghost" type="button" data-back="2" data-i18n="back">Back</button>
+        <button class="btn btn-primary btn-lg" type="button" id="submitBtn"></button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/js/design.js"></script>
+</body>
+</html>

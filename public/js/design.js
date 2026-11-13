@@ -1,0 +1,151 @@
+import { initPage, $, $$, esc, rupees, fmtSize, upload, toast, errorText, myOrders, validPhone, setFieldError, fileIcon, ICONS } from './common.js';
+import { t, pick, apply } from './i18n.js';
+
+const cfg = await initPage();
+const MAX_MB = cfg?.maxFileMb || 30;
+const state = { res: [], ref: [] };
+const preselect = new URLSearchParams(location.search).get('pkg');
+
+if (cfg && !cfg.accepting.design) {
+  toast(t('e_closed_design'), 'bad');
+  setTimeout(() => { location.href = '/'; }, 2500);
+}
+
+function show(step) {
+  $$('[data-step]').forEach((s) => s.classList.toggle('hidden', Number(s.dataset.step) !== step));
+  $$('#stepbar .s').forEach((s, i) => {
+    s.classList.toggle('done', i < step - 1);
+    s.classList.toggle('active', i === step - 1);
+  });
+  if (step === 3) renderSummary();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+$$('[data-back]').forEach((b) => b.addEventListener('click', () => show(Number(b.dataset.back))));
+
+function renderChoices() {
+  const checkedSvc = $('input[name=service]:checked')?.value;
+  $('#services').innerHTML = (cfg?.services || []).map((s) => `
+    <label class="chip"><input type="radio" name="service" value="${esc(s)}" ${s === checkedSvc ? 'checked' : ''}><span>${esc(t('svc_' + s))}</span></label>`).join('');
+
+  const checkedPkg = $('input[name=pkg]:checked')?.value || preselect;
+  $('#pkgPick').innerHTML = (cfg?.packages || []).map((p) => `
+    <label class="pkg-opt">
+      <input type="radio" name="pkg" value="${p.id}" ${String(p.id) === String(checkedPkg) ? 'checked' : ''}>
+      <span class="box">
+        <span class="radio"></span>
+        <span class="info"><b>${esc(pick(p, 'name'))}</b><small>${esc(pick(p, 'desc'))}</small></span>
+        <span class="amt">${rupees(p.price)}</span>
+      </span>
+    </label>`).join('');
+}
+
+// Step 1
+$('#detailsForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const badPhone = setFieldError($('#phone'), !validPhone($('#phone').value));
+  const badName = setFieldError($('#name'), $('#name').value.trim().length < 2);
+  if (!badName && !badPhone) show(2);
+});
+
+// Step 2
+$('#briefForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const bad = [
+    setFieldError($('#desc'), !$('#desc').value.trim()),
+    setFieldError($('#title'), !$('#title').value.trim()),
+  ];
+  const noPkg = !$('input[name=pkg]:checked');
+  $('#pkgField').classList.toggle('invalid', noPkg);
+  const noSvc = !$('input[name=service]:checked');
+  $('#serviceField').classList.toggle('invalid', noSvc);
+  if (noSvc || noPkg) $('#serviceField').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (!bad.some(Boolean) && !noPkg && !noSvc) show(3);
+});
+$('#briefForm').addEventListener('change', (e) => {
+  if (e.target.name === 'service') $('#serviceField').classList.remove('invalid');
+  if (e.target.name === 'pkg') $('#pkgField').classList.remove('invalid');
+});
+
+// Step 3: files
+function renderFiles(key) {
+  $(`#${key}List`).innerHTML = state[key].map((f, i) => `
+    <div class="file-item">
+      ${fileIcon(f.name)}
+      <div class="fmeta"><div class="fname">${esc(f.name)}</div><div class="fsub">${fmtSize(f.size)}</div></div>
+      <button class="icon-btn" type="button" data-rm="${i}" aria-label="${esc(t('remove'))}">${ICONS.trash}</button>
+    </div>`).join('');
+}
+for (const [key, max] of [['res', 12], ['ref', 6]]) {
+  const input = $(`#${key}Input`);
+  input.addEventListener('change', () => {
+    for (const f of input.files) {
+      if (f.size > MAX_MB * 1048576) { toast(t('err_file_size', { f: f.name, mb: MAX_MB }), 'bad'); continue; }
+      if (state[key].length < max && !state[key].some((x) => x.name === f.name && x.size === f.size)) state[key].push(f);
+    }
+    input.value = '';
+    renderFiles(key);
+  });
+  $(`#${key}List`).addEventListener('click', (e) => {
+    const b = e.target.closest('[data-rm]');
+    if (b) { state[key].splice(Number(b.dataset.rm), 1); renderFiles(key); }
+  });
+}
+
+function selectedPkg() {
+  const id = $('input[name=pkg]:checked')?.value;
+  return cfg?.packages.find((p) => String(p.id) === id);
+}
+
+function renderSummary() {
+  const pkg = selectedPkg();
+  const svc = $('input[name=service]:checked')?.value;
+  $('#summary').innerHTML = `
+    <div class="ln"><span>${esc(t('service'))}</span><span>${esc(svc ? t('svc_' + svc) : '—')}</span></div>
+    <div class="ln"><span>${esc(t('package'))}</span><span>${esc(pkg ? pick(pkg, 'name') : '—')}</span></div>
+    <div class="ln"><span>${esc(t('f_title'))}</span><span>${esc($('#title').value.trim())}</span></div>
+    <div class="ln total"><span>${esc(t('total'))}</span><span>${pkg ? rupees(pkg.price) : '—'}</span></div>`;
+  $('#submitBtn').textContent = `${t('submit_pay')} ${pkg ? rupees(pkg.price) : ''}`;
+}
+
+$('#submitBtn').addEventListener('click', async () => {
+  const fd = new FormData();
+  const val = (id) => $('#' + id).value.trim();
+  fd.append('name', val('name'));
+  fd.append('phone', val('phone'));
+  fd.append('email', val('email'));
+  fd.append('service', $('input[name=service]:checked')?.value || '');
+  fd.append('packageId', $('input[name=pkg]:checked')?.value || '');
+  for (const k of ['title', 'textContent', 'size', 'customSize', 'colors', 'deadline']) fd.append(k, val(k));
+  fd.append('description', val('desc'));
+  state.res.forEach((f) => fd.append('resources', f, f.name));
+  state.ref.forEach((f) => fd.append('references', f, f.name));
+
+  const btn = $('#submitBtn');
+  btn.disabled = true;
+  $('#uploadProgress').classList.remove('hidden');
+  const setP = (p) => {
+    $('#progressBar').style.width = p + '%';
+    $('#progressText').textContent = p < 100 ? t('uploading', { p }) : t('processing');
+  };
+  setP(0);
+  try {
+    const order = await upload('/api/design-orders', fd, setP);
+    myOrders.add(order);
+    location.href = '/order?id=' + encodeURIComponent(order.id);
+  } catch (err) {
+    toast(errorText(err), 'bad');
+    btn.disabled = false;
+    $('#uploadProgress').classList.add('hidden');
+  }
+});
+
+window.addEventListener('langchange', () => {
+  renderChoices();
+  renderFiles('res');
+  renderFiles('ref');
+  renderSummary();
+  apply();
+});
+
+renderChoices();
+show(1);
