@@ -17,7 +17,10 @@
       <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg></span>
       <span class="brand-name" data-shop-name>e-Mitra</span>
     </a>
-    <button class="lang-toggle" id="langToggle" type="button" data-i18n="lang_switch">हिंदी</button>
+    <div class="top-actions">
+      <button class="acct-btn hidden" id="accountBtn" type="button"></button>
+      <button class="lang-toggle" id="langToggle" type="button" data-i18n="lang_switch">हिंदी</button>
+    </div>
   </header>
 
   <main class="container">
@@ -33,6 +36,7 @@
       <form class="card" id="detailsForm" novalidate>
         <h2 data-i18n="details_title">Your details</h2>
         <p class="muted" data-i18n="details_sub">So we know whose prints are whose.</p>
+        <div id="savePrompt"></div>
         <div class="field">
           <label for="name" data-i18n="f_name">Full name</label>
           <input id="name" type="text" autocomplete="name" maxlength="60" data-i18n-ph="f_name_ph" required>

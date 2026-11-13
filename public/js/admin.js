@@ -5,7 +5,7 @@ const A = (path, opts) => api('/api/admin' + path, opts);
 const SERVICE = { logo: 'Logo', visiting: 'Visiting card', wedding: 'Wedding / invitation', banner: 'Banner / flex', poster: 'Poster / pamphlet', social: 'Social media post', biodata: 'Resume / biodata', other: 'Other' };
 const STATUS = {
   draft: ['Choosing options', ''], awaiting_payment: ['Awaiting payment', 'warn'], payment_submitted: ['Verify payment', 'warn live'],
-  queued: ['Queued', 'info'], printing: ['Printing', 'info live'], printed: ['Printed', 'ok'], failed: ['Print failed', 'bad'],
+  queued: ['Queued', 'info'], printing: ['Printing', 'info live'], flip_needed: ['Waiting for page flip', 'warn live'], printed: ['Printed', 'ok'], failed: ['Print failed', 'bad'],
   in_progress: ['Designing', 'info'], completed: ['Delivered', 'ok'], rejected: ['Rejected', 'bad'], cancelled: ['Cancelled', 'bad'], expired: ['Expired', ''],
 };
 const TABS = [
@@ -159,8 +159,13 @@ async function renderTab(silent = false) {
 
 // ---------- order cards ----------
 function fileRow(f) {
+  const sides = { long: '2-sided', short: '2-sided (short edge)', manual: '2-sided (manual flip)' }[f.sides];
   const opts = f.kind === 'print'
-    ? `${f.pages}p × ${f.copies} • ${f.color ? 'Colour' : 'B/W'}${f.duplex ? ' • 2-sided' : ''}`
+    ? [
+      f.range ? `pages ${f.range} (${f.selPages}/${f.pages})` : `${f.pages}p`,
+      `× ${f.copies}`, f.color ? 'Colour' : 'B/W', sides, f.paper,
+      f.orientation !== 'auto' ? f.orientation : '', f.scale !== 'fit' ? { shrink: 'shrink only', noscale: 'actual size' }[f.scale] : '',
+    ].filter(Boolean).join(' • ')
     : fmtSize(f.size);
   return `<div class="ofile">
     <span class="tag">${esc(f.kind)}</span>
@@ -182,6 +187,9 @@ function actionsFor(o, ctx) {
       break;
     case 'queued':
       acts.push(b('top', '⬆ Print next'), b('cancel', 'Cancel', 'btn-bad'));
+      break;
+    case 'flip_needed':
+      acts.push(b('continue', '▶ Pages flipped — print backs', 'btn-ok'), b('cancel', 'Cancel', 'btn-bad'));
       break;
     case 'failed':
       acts.push(b('reprint', '↻ Reprint', 'btn-primary'), b('printed', 'It printed fine'), b('cancel', 'Cancel', 'btn-bad'));
@@ -225,6 +233,7 @@ function orderCard(o, ctx) {
     <div class="oh">
       <span class="code">${esc(o.code)}</span>
       <span class="type">${o.type}</span>
+      ${o.account ? `<span class="type" title="Customer account">👤 ${esc({ 'google.com': 'Google', password: 'Email', anonymous: 'Guest' }[o.account] || o.account)}</span>` : ''}
       <span class="pill ${tone}">${esc(label)}${o.queuePosition ? ` #${o.queuePosition}` : ''}</span>
       <span class="amt">${rupees(o.amount)}</span>
     </div>
@@ -398,6 +407,7 @@ const VIEWS = {
     const [s, printers] = await Promise.all([A('/settings'), A('/printers')]);
     const sw = (name, label) => `<label class="switch"><input type="checkbox" name="${name}" ${s[name] ? 'checked' : ''}> ${label}</label>`;
     const names = printers.map((p) => p.name);
+    const printerPapers = (printers.find((p) => p.name === s.printerName) || printers[0])?.paperSizes || [];
     if (s.printerName && !names.includes(s.printerName)) names.unshift(s.printerName);
     return `<h1>Settings</h1>
       <form id="settingsForm">
@@ -428,6 +438,23 @@ const VIEWS = {
           <div class="field"><label>Printer</label><select name="printerName"><option value="">Windows default printer</option>${names.map((n) => `<option ${n === s.printerName ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
           <p class="muted small">Mode: <b>${esc(s.printMode)}</b>${s.printMode === 'simulate' ? ' — nothing is really printed. Set PRINT_MODE=auto in .env.' : ''}<br>Files are deleted ${s.retentionHours} hours after an order finishes.</p>
           <button class="btn btn-ghost" type="button" id="testPrint">🖨️ Print test page</button>
+        </div>
+        <div class="card" style="grid-column:1/-1"><h2>What customers can choose</h2>
+          <p class="muted small">Sent to the printer driver: page range, copies, colour/B&W, paper size, orientation, fit/actual size, two-sided. Print quality and paper type use the defaults you set in the Windows printer preferences.</p>
+          <div class="field"><label>Paper sizes you stock</label>
+            <div class="chips" id="paperChips">${s.allPapers.map((p) => `<label class="chip"><input type="checkbox" name="paperSizes" value="${p}" ${s.paperSizes.includes(p) ? 'checked' : ''}><span>${p}</span></label>`).join('')}</div>
+            ${printerPapers.length ? `<span class="hint">Your printer reports: ${esc(printerPapers.slice(0, 12).join(', '))}</span>` : ''}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:14px">
+            ${sw('autoDuplex', 'Printer has automatic two-sided printing (duplex unit)')}
+            <span class="muted small" style="margin-top:-6px">Off for Brother DCP-T430W: customers get "Both sides (you flip)" — fronts print, they turn the stack over and tap Continue, then backs print.</span>
+            ${sw('flipReverse', 'Print back pages in reverse order (turn on if backs come out mismatched in your test)')}
+          </div>
+          <div class="row2">
+            <div class="field"><label>Flip instructions (English)</label><textarea name="flipTextEn" maxlength="400" style="min-height:90px">${esc(s.flipTextEn)}</textarea></div>
+            <div class="field"><label>Flip instructions (Hindi)</label><textarea name="flipTextHi" maxlength="400" style="min-height:90px">${esc(s.flipTextHi)}</textarea></div>
+          </div>
+          <p class="muted small">Test once with a 4-page PDF using "Both sides (you flip)" and adjust the instructions to match how your printer feeds paper.</p>
         </div>
       </div>
       <div style="margin-top:18px"><button class="btn btn-primary btn-lg" type="submit">Save settings</button></div>
@@ -495,6 +522,9 @@ const AFTER = {
       const body = Object.fromEntries(new FormData(f).entries());
       body.acceptingPrint = f.acceptingPrint.checked;
       body.acceptingDesign = f.acceptingDesign.checked;
+      body.autoDuplex = f.autoDuplex.checked;
+      body.flipReverse = f.flipReverse.checked;
+      body.paperSizes = [...f.querySelectorAll('[name=paperSizes]:checked')].map((x) => x.value);
       try {
         await A('/settings', { method: 'PUT', body });
         toast('Settings saved', 'ok');

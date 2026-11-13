@@ -6,6 +6,8 @@ import { config } from './config.js';
 import './db.js';
 import publicRoutes from './routes/public.js';
 import adminRoutes from './routes/admin.js';
+import meRoutes from './routes/me.js';
+import { attachCustomer } from './customers.js';
 import { startWorker } from './printer.js';
 import { startMaintenance } from './maintenance.js';
 
@@ -14,22 +16,26 @@ app.disable('x-powered-by');
 // Requests arriving from a local tunnel (cloudflared) carry the real client IP in X-Forwarded-For.
 app.set('trust proxy', 'loopback');
 
+// Firebase Authentication needs its SDK (gstatic), its token APIs, and the sign-in popup/iframe.
+const fbAuthDomain = config.firebase.authDomain ? [`https://${config.firebase.authDomain}`] : [];
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
       'default-src': ["'self'"],
-      'script-src': ["'self'"],
+      'script-src': ["'self'", 'https://www.gstatic.com', 'https://apis.google.com'],
       'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       'font-src': ["'self'", 'https://fonts.gstatic.com'],
       'img-src': ["'self'", 'data:'],
-      'connect-src': ["'self'"],
+      'connect-src': ["'self'", 'https://identitytoolkit.googleapis.com', 'https://securetoken.googleapis.com', 'https://www.googleapis.com'],
+      'frame-src': [...fbAuthDomain, 'https://accounts.google.com', 'https://apis.google.com'],
       'form-action': ["'self'"],
       'frame-ancestors': ["'none'"],
       'upgrade-insecure-requests': null, // allow plain-http use on the shop Wi-Fi
     },
   },
   crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }, // Google sign-in popup
 }));
 
 app.use('/api', (req, res, next) => {
@@ -38,6 +44,8 @@ app.use('/api', (req, res, next) => {
 });
 app.use(express.json({ limit: '64kb' }));
 app.use('/api/admin', adminRoutes);
+app.use('/api', attachCustomer);
+app.use('/api/me', meRoutes);
 app.use('/api', publicRoutes);
 app.use('/api', (req, res) => res.status(404).json({ error: { code: 'not_found', message: 'Not found' } }));
 

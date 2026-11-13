@@ -9,7 +9,8 @@ import { safeEqual, randomId } from '../crypto.js';
 import { requireAdmin, setSession, clearSession } from '../auth.js';
 import { processUpload, storeFile, readStored, purgeOrderFiles, cleanupTmp, fileName, TMP_DIR, MAX_FILE_MB } from '../files.js';
 import { loadOrder, adminView, setStatus, FINAL } from '../orders.js';
-import { listPrinters, testPage, workerStatus, kick } from '../printer.js';
+import { listPrinters, testPage, workerStatus, kick, continueAfterFlip, resetStages } from '../printer.js';
+import { ALL_PAPERS } from '../printopts.js';
 import { HttpError, asyncH, cleanText, clampInt, rupeesToPaise, isId, contentDisposition } from '../util.js';
 
 const r = Router();
@@ -55,7 +56,8 @@ r.get('/summary', (req, res) => {
   res.json({
     pending: count("SELECT COUNT(*) n FROM orders WHERE status = 'payment_submitted'"),
     awaiting: count("SELECT COUNT(*) n FROM orders WHERE status = 'awaiting_payment'"),
-    queued: count("SELECT COUNT(*) n FROM orders WHERE status IN ('queued','printing')"),
+    queued: count("SELECT COUNT(*) n FROM orders WHERE status IN ('queued','printing','flip_needed')"),
+    customers: count("SELECT COUNT(*) n FROM customers WHERE provider != 'anonymous'"),
     failed: count("SELECT COUNT(*) n FROM orders WHERE status = 'failed'"),
     design: count("SELECT COUNT(*) n FROM orders WHERE type='design' AND status = 'in_progress'"),
     ordersToday: count('SELECT COUNT(*) n FROM orders WHERE created_at >= ?', startOfDay.getTime()),
@@ -69,7 +71,7 @@ r.get('/summary', (req, res) => {
 
 const VIEWS = {
   pending: "status IN ('payment_submitted','awaiting_payment') ORDER BY CASE status WHEN 'payment_submitted' THEN 0 ELSE 1 END, paid_at, created_at",
-  queue: "type = 'print' AND status IN ('printing','queued','failed') ORDER BY CASE status WHEN 'printing' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END, verified_at",
+  queue: "type = 'print' AND status IN ('printing','flip_needed','queued','failed') ORDER BY CASE status WHEN 'printing' THEN 0 WHEN 'flip_needed' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END, verified_at",
   design: "type = 'design' AND status IN ('in_progress') ORDER BY verified_at",
   history: '1=1 ORDER BY created_at DESC LIMIT 300',
 };
@@ -118,8 +120,13 @@ r.post('/orders/:id/action', asyncH(async (req, res) => {
       if (!db.prepare("SELECT 1 FROM files WHERE order_id = ? AND kind='print' AND purged = 0").get(o.id)) {
         throw new HttpError(409, 'purged', 'Files were already deleted for privacy');
       }
+      resetStages(o.id);
       setStatus(o.id, 'queued', { verified_at: t, error: null });
       kick();
+      break;
+    case 'continue': // owner flipped the pages for a manual two-sided job
+      if (o.status !== 'flip_needed') bad();
+      continueAfterFlip(o);
       break;
     case 'top': {
       if (o.status !== 'queued') bad();
@@ -128,7 +135,7 @@ r.post('/orders/:id/action', asyncH(async (req, res) => {
       break;
     }
     case 'cancel':
-      if (!['queued', 'failed', 'in_progress'].includes(o.status)) bad();
+      if (!['queued', 'failed', 'in_progress', 'flip_needed'].includes(o.status)) bad();
       setStatus(o.id, 'cancelled', { admin_note: note || null, done_at: t });
       break;
     case 'complete':
@@ -220,6 +227,12 @@ r.get('/settings', (req, res) => {
     defaultLang: s.default_lang,
     printMode: config.printMode,
     retentionHours: config.fileRetentionHours,
+    allPapers: ALL_PAPERS,
+    paperSizes: s.paper_sizes.split(',').filter(Boolean),
+    autoDuplex: s.auto_duplex === '1',
+    flipReverse: s.flip_reverse === '1',
+    flipTextEn: s.flip_text_en,
+    flipTextHi: s.flip_text_hi,
   });
 });
 
@@ -242,6 +255,15 @@ r.put('/settings', (req, res) => {
   if (b.printerName !== undefined) set('printer_name', cleanText(b.printerName, 200));
   if (b.maxBanners !== undefined) set('max_banners', clampInt(b.maxBanners, 0, 10, 3));
   if (b.defaultLang !== undefined) set('default_lang', b.defaultLang === 'en' ? 'en' : 'hi');
+  if (b.paperSizes !== undefined) {
+    const list = (Array.isArray(b.paperSizes) ? b.paperSizes : []).filter((p) => ALL_PAPERS.includes(p));
+    if (!list.length) throw new HttpError(400, 'bad_paper', 'Choose at least one paper size');
+    set('paper_sizes', list.join(','));
+  }
+  if (b.autoDuplex !== undefined) set('auto_duplex', b.autoDuplex ? 1 : 0);
+  if (b.flipReverse !== undefined) set('flip_reverse', b.flipReverse ? 1 : 0);
+  if (b.flipTextEn !== undefined) set('flip_text_en', cleanText(b.flipTextEn, 400));
+  if (b.flipTextHi !== undefined) set('flip_text_hi', cleanText(b.flipTextHi, 400));
   audit('admin', 'settings_changed');
   res.json({ ok: true });
 });

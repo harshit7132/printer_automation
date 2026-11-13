@@ -72,7 +72,27 @@ db.exec(`
     at INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL,
     order_id TEXT, detail TEXT
   );
+
+  -- Customer accounts (Firebase Authentication uid). Profile is encrypted.
+  CREATE TABLE IF NOT EXISTS customers (
+    uid TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,          -- anonymous | password | google.com
+    profile TEXT,                    -- encrypted JSON: name, phone, email, prefs
+    created_at INTEGER NOT NULL,
+    last_seen INTEGER NOT NULL
+  );
 `);
+
+// ---- migrations for databases created by earlier versions ----
+function addColumn(table, col, def) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+}
+addColumn('orders', 'customer_uid', 'TEXT');
+addColumn('files', 'opts', 'TEXT');                       // JSON print options (not sensitive)
+addColumn('files', 'sel_pages', 'INTEGER NOT NULL DEFAULT 0'); // pages selected by the page range
+addColumn('files', 'stage', 'INTEGER NOT NULL DEFAULT 0');     // 0 waiting, 1 fronts printed (manual 2-sided), 2 done
+db.exec('CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_uid, created_at)');
 
 const DEFAULTS = {
   shop_name: 'e-Mitra Print & Design',
@@ -88,6 +108,12 @@ const DEFAULTS = {
   queue_paused: 0,
   max_banners: 3,
   default_lang: 'hi',
+  // Print capabilities (defaults suit a Brother DCP-T430W: no automatic duplex, no A3)
+  paper_sizes: 'A4,A5,Legal',
+  auto_duplex: 0,
+  flip_reverse: 0,
+  flip_text_en: 'Take the printed pages from the output tray without changing their order. Turn the stack over and put it back in the paper tray, printed side up, top edge first. Then tap Continue.',
+  flip_text_hi: 'छपे हुए पेज आउटपुट ट्रे से बिना क्रम बदले निकालें। पूरी गड्डी को पलटें और छपी तरफ़ ऊपर, ऊपरी किनारा पहले रखते हुए पेपर ट्रे में वापस रखें। फिर "आगे बढ़ें" दबाएं।',
   counter_print: 0,
   counter_design: 0,
   seeded: 0,

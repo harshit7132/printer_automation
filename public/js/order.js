@@ -1,6 +1,20 @@
 import { initPage, $, esc, rupees, fmtSize, api, toast, errorText, myOrders, ICONS, fileIcon, ApiError } from './common.js';
 import { t, getLang } from './i18n.js';
 
+const sideLabel = (s) => ({ long: t('sides_long'), short: t('sides_short'), manual: t('sides_manual') }[s] || '');
+function optsLine(f) {
+  const bits = [
+    f.selPages === f.pages ? (f.pages === 1 ? t('page_1') : t('pages_n', { n: f.pages })) : `${t('o_pages')} ${f.range} (${f.selPages})`,
+    f.color ? t('colour_short') : t('bw_short'),
+    sideLabel(f.sides),
+    f.paper,
+    f.orientation !== 'auto' ? t('o_' + f.orientation) : '',
+    f.scale !== 'fit' ? t('o_' + f.scale) : '',
+    t('copies_n', { n: f.copies }),
+  ];
+  return bits.filter(Boolean).join(' • ');
+}
+
 await initPage();
 const id = new URLSearchParams(location.search).get('id') || '';
 const root = $('#root');
@@ -10,12 +24,12 @@ let timer = null;
 
 const FINAL = ['printed', 'completed', 'rejected', 'cancelled', 'expired'];
 const TONE = {
-  draft: 'info', awaiting_payment: 'warn', payment_submitted: 'info live', queued: 'info live', printing: 'info live',
+  draft: 'info', awaiting_payment: 'warn', payment_submitted: 'info live', queued: 'info live', printing: 'info live', flip_needed: 'warn live',
   printed: 'ok', failed: 'warn', in_progress: 'info live', completed: 'ok', rejected: 'bad', cancelled: 'bad', expired: 'bad',
 };
 // how many timeline steps are complete, and which one is current
 const PROGRESS = {
-  awaiting_payment: 0, payment_submitted: 1, queued: 2, printing: 2, failed: 2, in_progress: 2, printed: 4, completed: 4,
+  awaiting_payment: 0, payment_submitted: 1, queued: 2, printing: 2, flip_needed: 2, failed: 2, in_progress: 2, printed: 4, completed: 4,
 };
 
 function timeline(o) {
@@ -54,8 +68,21 @@ function payCard(o) {
   </div>`;
 }
 
+function flipCard(o) {
+  const text = (getLang() === 'hi' && o.flip?.hi) || o.flip?.en || '';
+  return `
+  <div class="card status-hero warn flip-card">
+    <div class="big-icon">${ICONS.printer}</div>
+    <h2>${esc(t('h_flip_needed'))}</h2>
+    ${o.flip?.file ? `<p class="muted small">${esc(t('flip_file', { f: o.flip.file }))}</p>` : ''}
+    <div class="flip-steps">${esc(text)}</div>
+    <button class="btn btn-primary btn-lg btn-block" type="button" id="flipBtn">${ICONS.check} ${esc(t('flip_btn'))}</button>
+  </div>`;
+}
+
 function statusCard(o) {
   const s = o.status;
+  if (s === 'flip_needed') return flipCard(o);
   const icon = { printed: ICONS.done, completed: ICONS.done, printing: ICONS.printer, queued: ICONS.printer, failed: ICONS.alert,
     rejected: ICONS.x, cancelled: ICONS.x, expired: ICONS.clock, in_progress: ICONS.palette }[s] || ICONS.clock;
   const tone = ['printed', 'completed'].includes(s) ? 'ok' : ['rejected', 'cancelled', 'expired'].includes(s) ? 'bad' : s === 'failed' ? 'warn' : '';
@@ -77,7 +104,7 @@ function filesCard(o) {
     return `<div class="card"><h2>${esc(t('your_files'))}</h2><div class="file-list">${o.files.map((f) => `
       <div class="file-item">${fileIcon(f.name)}
         <div class="fmeta"><div class="fname">${esc(f.name)}</div>
-          <div class="fsub">${f.pages === 1 ? esc(t('page_1')) : esc(t('pages_n', { n: f.pages }))} • ${esc(f.color ? t('colour_short') : t('bw_short'))}${f.duplex ? ' • ' + esc(t('double_short')) : ''} • ${esc(t('copies_n', { n: f.copies }))}</div>
+          <div class="fsub">${esc(optsLine(f))}</div>
         </div></div>`).join('')}</div>
       <div class="summary-list" style="margin-top:14px"><div class="ln total"><span>${esc(t('total'))}</span><span>${rupees(o.amount)}</span></div></div></div>`;
   }
@@ -148,6 +175,15 @@ function bind() {
       if (err.code === 'bad_state') load();
     }
   });
+  $('#flipBtn')?.addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      update(await api(`/api/orders/${encodeURIComponent(id)}/continue`, { method: 'POST', body: {} }));
+    } catch (err) {
+      toast(errorText(err), 'bad');
+      load();
+    }
+  });
   $('#cancelBtn')?.addEventListener('click', async () => {
     if (!confirm(t('confirm_cancel'))) return;
     try {
@@ -174,7 +210,7 @@ function update(o) {
 function schedule() {
   clearTimeout(timer);
   if (FINAL.includes(order.status)) return;
-  const wait = { payment_submitted: 5000, queued: 3000, printing: 3000, awaiting_payment: 10000 }[order.status] || 20000;
+  const wait = { payment_submitted: 5000, queued: 3000, printing: 3000, flip_needed: 4000, awaiting_payment: 10000 }[order.status] || 20000;
   timer = setTimeout(load, wait);
 }
 

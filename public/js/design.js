@@ -1,10 +1,15 @@
-import { initPage, $, $$, esc, rupees, fmtSize, upload, toast, errorText, myOrders, validPhone, setFieldError, fileIcon, ICONS } from './common.js';
+import {
+  initPage, $, $$, esc, rupees, fmtSize, upload, toast, errorText, myOrders, validPhone, setFieldError, fileIcon, ICONS,
+  mountSavePrompt, saveMe,
+} from './common.js';
 import { t, pick, apply } from './i18n.js';
 
 const cfg = await initPage();
 const MAX_MB = cfg?.maxFileMb || 30;
 const state = { res: [], ref: [] };
 const preselect = new URLSearchParams(location.search).get('pkg');
+let savePrompt = { shouldSave: () => false };
+mountSavePrompt($('#savePrompt'), { name: $('#name'), phone: $('#phone'), email: $('#email') }).then((p) => { savePrompt = p; });
 
 if (cfg && !cfg.accepting.design) {
   toast(t('e_closed_design'), 'bad');
@@ -44,7 +49,11 @@ $('#detailsForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const badPhone = setFieldError($('#phone'), !validPhone($('#phone').value));
   const badName = setFieldError($('#name'), $('#name').value.trim().length < 2);
-  if (!badName && !badPhone) show(2);
+  if (badName || badPhone) return;
+  if (savePrompt.shouldSave()) {
+    saveMe({ name: $('#name').value.trim(), phone: $('#phone').value.trim(), email: $('#email').value.trim() }).catch(() => {});
+  }
+  show(2);
 });
 
 // Step 2

@@ -9,6 +9,9 @@ import {
 } from '../files.js';
 import { loadOrder, publicView, setStatus, computePrintAmount } from '../orders.js';
 import { notifyOwner } from '../notify.js';
+import { capabilities, normalizeOptions, readOpts } from '../printopts.js';
+import { continueAfterFlip } from '../printer.js';
+import { accountsEnabled } from '../customers.js';
 import { HttpError, asyncH, cleanText, cleanPhone, clampInt, isId, contentDisposition } from '../util.js';
 
 export const SERVICES = ['logo', 'visiting', 'wedding', 'banner', 'poster', 'social', 'biodata', 'other'];
@@ -42,6 +45,8 @@ r.get('/config', readLimiter, (req, res) => {
     retentionHours: config.fileRetentionHours,
     maxFileMb: MAX_FILE_MB,
     services: SERVICES,
+    caps: capabilities(s),
+    accounts: accountsEnabled() ? { ...config.firebase } : null,
     packages: db.prepare('SELECT id, name_en, name_hi, desc_en, desc_hi, price FROM packages WHERE active = 1 ORDER BY sort, id').all(),
     banners: db.prepare('SELECT id, title_en, title_hi, text_en, text_hi, theme FROM banners WHERE active = 1 ORDER BY sort, id LIMIT ?')
       .all(clampInt(s.max_banners, 0, 10, 3)),
@@ -66,8 +71,8 @@ r.post('/print-orders', createLimiter, upload.array('files', 20), asyncH(async (
     const t = Date.now();
     const code = tx(() => {
       const c = nextCode('print');
-      db.prepare('INSERT INTO orders (id, code, type, status, amount, pii, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)')
-        .run(id, c, 'print', 'draft', 0, encryptJSON({ name, phone, notes }), t, t);
+      db.prepare('INSERT INTO orders (id, code, type, status, amount, pii, customer_uid, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, c, 'print', 'draft', 0, encryptJSON({ name, phone, notes }), req.customer?.uid ?? null, t, t);
       return c;
     });
     processed.forEach((p, i) => storeFile(id, 'print', p, i));
@@ -87,12 +92,16 @@ r.put('/orders/:id/print-options', actionLimiter, asyncH(async (req, res) => {
   const existing = db.prepare("SELECT * FROM files WHERE order_id = ? AND kind = 'print'").all(o.id);
   if (!existing.some((f) => byId.has(f.id))) throw new HttpError(400, 'no_files', 'Keep at least one file');
 
-  const upd = db.prepare('UPDATE files SET copies = ?, color = ?, duplex = ? WHERE id = ?');
+  const caps = capabilities(getSettings());
+  const upd = db.prepare('UPDATE files SET copies = ?, color = ?, duplex = ?, opts = ?, sel_pages = ? WHERE id = ?');
+  const normalized = [];
   for (const f of existing) {
     const w = byId.get(f.id);
-    if (!w) { deleteFileRow(f); continue; }
-    upd.run(clampInt(w.copies, 1, 100, 1), w.color ? 1 : 0, w.duplex ? 1 : 0, f.id);
+    if (!w) continue;
+    normalized.push([f, normalizeOptions(w, f, caps, !!readOpts(f).encrypted)]); // throws on a bad page range
   }
+  for (const f of existing) if (!byId.has(f.id)) deleteFileRow(f);
+  for (const [f, n] of normalized) upd.run(n.copies, n.color, n.duplex, JSON.stringify(n.opts), n.selPages, f.id);
   const amount = computePrintAmount(o.id);
   setStatus(o.id, 'awaiting_payment', { amount });
   res.json(await publicView(loadOrder(o.id)));
@@ -136,8 +145,8 @@ r.post('/design-orders', createLimiter, upload.fields([{ name: 'resources', maxC
     const t = Date.now();
     const code = tx(() => {
       const c = nextCode('design');
-      db.prepare('INSERT INTO orders (id, code, type, status, amount, pii, meta, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(id, c, 'design', 'awaiting_payment', pkg.price, encryptJSON({ name, phone, email }), encryptJSON(brief), t, t);
+      db.prepare('INSERT INTO orders (id, code, type, status, amount, pii, meta, customer_uid, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(id, c, 'design', 'awaiting_payment', pkg.price, encryptJSON({ name, phone, email }), encryptJSON(brief), req.customer?.uid ?? null, t, t);
       return c;
     });
     procRes.forEach((p, i) => storeFile(id, 'resource', p, i));
@@ -164,6 +173,15 @@ r.post('/orders/:id/payment', actionLimiter, asyncH(async (req, res) => {
   setStatus(o.id, 'payment_submitted', { pii: encryptJSON(pii), paid_at: Date.now(), admin_note: null });
   audit('customer', 'payment_submitted', o.id, o.code);
   notifyOwner(`💰 Verify payment\n${o.code} • ₹${(o.amount / 100).toFixed(2)}\nUTR: ${utr}`);
+  res.json(await publicView(loadOrder(o.id)));
+}));
+
+// Manual two-sided printing: the customer has turned the stack over and put it back in the tray.
+r.post('/orders/:id/continue', actionLimiter, asyncH(async (req, res) => {
+  const o = mustLoad(req.params.id);
+  if (o.status !== 'flip_needed') throw new HttpError(409, 'bad_state', 'Nothing to continue');
+  continueAfterFlip(o);
+  audit('customer', 'flip_continue', o.id, o.code);
   res.json(await publicView(loadOrder(o.id)));
 }));
 

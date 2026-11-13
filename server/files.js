@@ -72,15 +72,17 @@ export async function processUpload(file, purpose) {
 
   if (type.ext === 'pdf') {
     let pages = 0;
+    let encrypted = false;
     try {
       const doc = await PDFDocument.load(buf, { ignoreEncryption: true, updateMetadata: false });
       pages = doc.getPageCount();
+      encrypted = doc.isEncrypted;
     } catch {
       throw new HttpError(400, 'bad_pdf', `Could not read PDF "${name}"`, { file: name });
     }
     if (!pages) throw new HttpError(400, 'bad_pdf', `"${name}" has no pages`, { file: name });
     if (pages > MAX_PAGES_PER_FILE) throw new HttpError(400, 'too_many_pages', `"${name}" has more than ${MAX_PAGES_PER_FILE} pages`, { file: name });
-    return { buf, name, mime: 'application/pdf', size: buf.length, pages };
+    return { buf, name, mime: 'application/pdf', size: buf.length, pages, encrypted };
   }
   const pdf = await imageToPdf(buf, type.ext, name);
   return { buf: pdf, name, mime: 'application/pdf', size: buf.length, pages: 1 };
@@ -94,8 +96,8 @@ const storedPath = (id) => {
 export function storeFile(orderId, kind, p, sort = 0) {
   const id = randomId(16);
   fs.writeFileSync(storedPath(id), encryptBuffer(p.buf), { mode: 0o600 });
-  db.prepare('INSERT INTO files (id, order_id, kind, name, mime, size, pages, sort, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(id, orderId, kind, encryptJSON(p.name), p.mime, p.size, p.pages, sort, Date.now());
+  db.prepare('INSERT INTO files (id, order_id, kind, name, mime, size, pages, sel_pages, opts, sort, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+    .run(id, orderId, kind, encryptJSON(p.name), p.mime, p.size, p.pages, p.pages, p.encrypted ? '{"encrypted":true}' : null, sort, Date.now());
   return id;
 }
 

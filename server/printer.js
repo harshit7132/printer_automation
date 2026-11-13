@@ -1,5 +1,10 @@
 // Print queue worker: one order at a time, all of a customer's files printed together,
 // so bulk orders from different customers never get mixed in the tray.
+//
+// Options sent to the Windows driver (via SumatraPDF): page range, copies, colour/mono,
+// paper size, orientation, fit/shrink/actual size, automatic duplex (if the printer has it).
+// Manual two-sided (for printers without duplex, e.g. Brother DCP-T430W): we print the fronts,
+// pause the queue while the customer flips the stack, then print the backs.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +14,7 @@ import { db, getSettings, audit } from './db.js';
 import { readStored } from './files.js';
 import { setStatus } from './orders.js';
 import { notifyOwner } from './notify.js';
+import { readOpts, parseRange, SUMATRA_PAPER } from './printopts.js';
 
 const { PDFDocument, StandardFonts, rgb } = pdfLib;
 let ptp; // pdf-to-printer module, false if unavailable
@@ -29,21 +35,22 @@ async function driver() {
 }
 
 export async function listPrinters() {
-  if (config.printMode === 'simulate') return [{ name: 'Simulated Printer' }];
+  if (config.printMode === 'simulate') return [{ name: 'Simulated Printer', paperSizes: ['A4', 'A5', 'Legal', 'Letter'] }];
   const p = await driver();
   if (!p) return [];
   try {
-    return (await p.getPrinters()).map((x) => ({ name: x.name }));
+    return (await p.getPrinters()).map((x) => ({ name: x.name, paperSizes: Array.isArray(x.paperSizes) ? x.paperSizes : [] }));
   } catch (e) {
     console.warn('Could not list printers:', e.message);
     return [];
   }
 }
 
-export async function printPdf(buf, { printer, copies = 1, color = false, duplex = false, label = '' } = {}) {
+/** Sends one PDF to the printer. `settings` are pdf-to-printer options. */
+export async function printPdf(buf, settings = {}, label = '') {
   if (config.printMode === 'simulate') {
-    console.log(`[simulate] printing ${label} copies=${copies} ${color ? 'colour' : 'b/w'} ${duplex ? 'duplex' : 'single'} (${buf.length} bytes) on "${printer || 'default'}"`);
-    await new Promise((r) => setTimeout(r, 1500));
+    console.log(`[simulate] ${label} ->`, JSON.stringify(settings), `(${buf.length} bytes)`);
+    await new Promise((r) => setTimeout(r, 1200));
     return;
   }
   const p = await driver();
@@ -52,17 +59,54 @@ export async function printPdf(buf, { printer, copies = 1, color = false, duplex
   const file = path.join(dir, 'job.pdf');
   try {
     fs.writeFileSync(file, buf, { mode: 0o600 });
-    await p.print(file, {
-      printer: printer || undefined,
-      copies,
-      monochrome: !color,
-      side: duplex ? 'duplex' : 'simplex',
-      scale: 'fit',
-      silent: true,
-    });
+    await p.print(file, { silent: true, ...settings });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true }); // decrypted copy never stays on disk
   }
+}
+
+function driverSettings(o, f, printer, extra = {}) {
+  const s = {
+    printer: printer || undefined,
+    monochrome: !f.color,
+    scale: o.scale,
+    paperSize: SUMATRA_PAPER[o.paper] || 'A4',
+    ...extra,
+  };
+  if (o.orientation !== 'auto') s.orientation = o.orientation;
+  return s;
+}
+
+/**
+ * Manual two-sided: build one PDF with the selected pages, each copy padded to an even page count,
+ * then split into fronts (1,3,5…) and backs (2,4,6…). Sheets stay aligned across copies.
+ */
+async function manualDuplexParts(buf, f, o, reverseBacks) {
+  const src = await PDFDocument.load(buf);
+  const pages = parseRange(o.range, src.getPageCount()).map((p) => p - 1);
+  const doc = await PDFDocument.create();
+  const copied = await doc.copyPages(src, pages);
+  for (let c = 0; c < f.copies; c++) {
+    for (const pg of c === 0 ? copied : await doc.copyPages(src, pages)) doc.addPage(pg);
+    if (pages.length % 2) {
+      const last = src.getPage(pages[pages.length - 1]);
+      doc.addPage([last.getWidth(), last.getHeight()]); // blank back for the last sheet
+    }
+  }
+  const total = doc.getPageCount();
+  const pick = async (idx) => {
+    const out = await PDFDocument.create();
+    for (const pg of await out.copyPages(doc, idx)) out.addPage(pg);
+    return Buffer.from(await out.save());
+  };
+  const fronts = [];
+  const backs = [];
+  for (let i = 0; i < total; i += 2) {
+    fronts.push(i);
+    backs.push(i + 1);
+  }
+  if (reverseBacks) backs.reverse();
+  return { fronts: await pick(fronts), backs: await pick(backs), sheets: fronts.length };
 }
 
 export async function testPage(shopName, printer) {
@@ -73,17 +117,50 @@ export async function testPage(shopName, printer) {
   page.drawText(shopName.replace(/[^\x20-\x7E]/g, ''), { x: 60, y: 720, size: 16, font });
   page.drawText(new Date().toLocaleString('en-IN'), { x: 60, y: 695, size: 12, font });
   page.drawText('If you can read this, printing works.', { x: 60, y: 660, size: 14, font });
-  await printPdf(Buffer.from(await doc.save()), { printer, label: 'test page' });
+  await printPdf(Buffer.from(await doc.save()), { printer: printer || undefined }, 'test page');
 }
 
 export function workerStatus() {
   return { busy, current, mode: config.printMode };
 }
 
+/** Prints the order's remaining files. Returns 'done' or 'flip' (waiting for the customer to flip pages). */
+async function runOrder(order, s) {
+  const files = db.prepare("SELECT * FROM files WHERE order_id = ? AND kind = 'print' AND purged = 0 ORDER BY sort").all(order.id);
+  if (!files.length) throw new Error('No files left to print (they may have been deleted).');
+  const setStage = db.prepare('UPDATE files SET stage = ? WHERE id = ?');
+
+  for (const f of files) {
+    if (f.stage >= 2) continue;
+    const o = readOpts(f);
+    const label = `${order.code}/${f.sort + 1}`;
+    const buf = readStored(f.id);
+
+    if (o.sides === 'manual') {
+      const parts = await manualDuplexParts(buf, f, o, s.flip_reverse === '1');
+      if (f.stage === 0) {
+        await printPdf(parts.fronts, driverSettings(o, f, s.printer_name), `${label} fronts (${parts.sheets} sheets)`);
+        setStage.run(1, f.id);
+        return 'flip';
+      }
+      await printPdf(parts.backs, driverSettings(o, f, s.printer_name), `${label} backs`);
+    } else {
+      const side = o.sides === 'long' ? 'duplexlong' : o.sides === 'short' ? 'duplexshort' : 'simplex';
+      const extra = { side, copies: f.copies };
+      if (o.range) extra.pages = o.range;
+      await printPdf(buf, driverSettings(o, f, s.printer_name, extra), label);
+    }
+    setStage.run(2, f.id);
+  }
+  return 'done';
+}
+
 async function tick() {
   if (busy) return;
   const s = getSettings();
   if (s.queue_paused === '1') return;
+  // Paper for a manual two-sided job is sitting in the tray: nobody else may print until it's flipped.
+  if (db.prepare("SELECT 1 FROM orders WHERE status = 'flip_needed'").get()) return;
   const order = db.prepare("SELECT * FROM orders WHERE type='print' AND status='queued' ORDER BY verified_at ASC LIMIT 1").get();
   if (!order) return;
 
@@ -91,15 +168,14 @@ async function tick() {
   current = order.code;
   setStatus(order.id, 'printing', { error: null });
   try {
-    const files = db.prepare("SELECT * FROM files WHERE order_id = ? AND kind = 'print' AND purged = 0 ORDER BY sort").all(order.id);
-    if (!files.length) throw new Error('No files left to print (they may have been deleted).');
-    for (const f of files) {
-      await printPdf(readStored(f.id), {
-        printer: s.printer_name, copies: f.copies, color: !!f.color, duplex: !!f.duplex, label: `${order.code}/${f.sort + 1}`,
-      });
+    const result = await runOrder(order, s);
+    if (result === 'flip') {
+      setStatus(order.id, 'flip_needed');
+      audit('printer', 'flip_needed', order.id, order.code);
+    } else {
+      setStatus(order.id, 'printed', { done_at: Date.now() });
+      audit('printer', 'printed', order.id, order.code);
     }
-    setStatus(order.id, 'printed', { done_at: Date.now() });
-    audit('printer', 'printed', order.id, order.code);
   } catch (e) {
     console.error(`Print failed for ${order.code}:`, e.message);
     setStatus(order.id, 'failed', { error: String(e.message).slice(0, 300) });
@@ -110,6 +186,15 @@ async function tick() {
     current = null;
   }
 }
+
+/** Customer (or owner) has flipped the pages: resume this order before anything else. */
+export function continueAfterFlip(order) {
+  const min = db.prepare("SELECT MIN(verified_at) m FROM orders WHERE status = 'queued'").get().m;
+  setStatus(order.id, 'queued', { verified_at: Math.min(min ?? order.verified_at, order.verified_at) - 1 });
+  kick();
+}
+
+export const resetStages = (orderId) => db.prepare("UPDATE files SET stage = 0 WHERE order_id = ? AND kind = 'print'").run(orderId);
 
 export const kick = () => setImmediate(() => tick().catch((e) => console.error(e)));
 

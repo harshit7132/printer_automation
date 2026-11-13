@@ -4,6 +4,15 @@ import { db, getSettings } from './db.js';
 import { decryptJSON } from './crypto.js';
 import { fileName } from './files.js';
 import { isId } from './util.js';
+import { capabilities, readOpts, chargedPages } from './printopts.js';
+
+const printFileView = (f) => {
+  const o = readOpts(f);
+  return {
+    id: f.id, name: fileName(f), pages: f.pages, selPages: chargedPages(f), copies: f.copies, color: !!f.color,
+    sides: o.sides, range: o.range, paper: o.paper, orientation: o.orientation, scale: o.scale, encrypted: !!o.encrypted,
+  };
+};
 
 export const FINAL = ['printed', 'completed', 'rejected', 'cancelled', 'expired'];
 const EXTRA_COLS = new Set(['verified_at', 'paid_at', 'done_at', 'error', 'admin_note', 'amount', 'pii']);
@@ -29,10 +38,10 @@ export function setStatus(id, status, extra = {}) {
 }
 
 export function queuePosition(o) {
-  if (o.status === 'printing') return 0;
+  if (o.status === 'printing' || o.status === 'flip_needed') return 0;
   if (o.status !== 'queued') return null;
   const ahead = db.prepare("SELECT COUNT(*) AS n FROM orders WHERE type='print' AND status='queued' AND verified_at < ?").get(o.verified_at).n;
-  const printing = db.prepare("SELECT COUNT(*) AS n FROM orders WHERE status='printing'").get().n;
+  const printing = db.prepare("SELECT COUNT(*) AS n FROM orders WHERE status IN ('printing','flip_needed')").get().n;
   return ahead + printing + 1;
 }
 
@@ -40,8 +49,8 @@ export function computePrintAmount(orderId, s = getSettings()) {
   const bw = Number(s.price_bw);
   const color = Number(s.price_color);
   let total = 0;
-  for (const f of db.prepare("SELECT pages, copies, color FROM files WHERE order_id = ? AND kind = 'print'").all(orderId)) {
-    total += f.pages * f.copies * (f.color ? color : bw);
+  for (const f of db.prepare("SELECT pages, sel_pages, copies, color FROM files WHERE order_id = ? AND kind = 'print'").all(orderId)) {
+    total += chargedPages(f) * f.copies * (f.color ? color : bw);
   }
   return total;
 }
@@ -69,14 +78,17 @@ export async function publicView(o) {
     queuePosition: queuePosition(o),
     retentionHours: config.fileRetentionHours,
     prices: { bw: Number(s.price_bw), color: Number(s.price_color) },
-    files: files.filter((f) => f.kind === 'print').map((f) => ({
-      id: f.id, name: fileName(f), pages: f.pages, copies: f.copies, color: !!f.color, duplex: !!f.duplex,
-    })),
+    caps: capabilities(s),
+    files: files.filter((f) => f.kind === 'print').map(printFileView),
     uploads: files.filter((f) => f.kind === 'resource' || f.kind === 'reference').map((f) => ({ kind: f.kind, name: fileName(f), size: f.size })),
     deliveries: o.status === 'completed'
       ? files.filter((f) => f.kind === 'delivery' && !f.purged).map((f) => ({ id: f.id, name: fileName(f), size: f.size }))
       : [],
   };
+  if (o.status === 'flip_needed') {
+    const f = files.find((x) => x.kind === 'print' && x.stage === 1);
+    v.flip = { en: s.flip_text_en, hi: s.flip_text_hi, file: f ? fileName(f) : '' };
+  }
   if (o.type === 'design') v.design = { service: meta.service, packageName: meta.packageName, packageNameHi: meta.packageNameHi, title: meta.title };
   if (o.status === 'awaiting_payment') {
     if (s.upi_id) {
@@ -112,9 +124,17 @@ export function adminView(o) {
     queuePosition: queuePosition(o),
     customer: decryptJSON(o.pii) || {},
     brief: decryptJSON(o.meta) || null,
+    account: o.customer_uid ? (db.prepare('SELECT provider FROM customers WHERE uid = ?').get(o.customer_uid)?.provider || 'deleted') : null,
     files: orderFiles(o.id).map((f) => ({
-      id: f.id, kind: f.kind, name: fileName(f), mime: f.mime, size: f.size, pages: f.pages,
-      copies: f.copies, color: !!f.color, duplex: !!f.duplex, purged: !!f.purged,
+      ...(f.kind === 'print' ? printFileView(f) : { id: f.id, name: fileName(f) }),
+      kind: f.kind, mime: f.mime, size: f.size, purged: !!f.purged, stage: f.stage,
     })),
   };
+}
+
+/** Short list of a signed-in customer's own orders. */
+export function customerOrders(uid) {
+  return db.prepare('SELECT id, code, type, status, amount, created_at FROM orders WHERE customer_uid = ? ORDER BY created_at DESC LIMIT 50')
+    .all(uid)
+    .map((o) => ({ id: o.id, code: o.code, type: o.type, status: o.status, amount: o.amount, createdAt: o.created_at }));
 }

@@ -28,6 +28,13 @@ export function runMaintenance() {
 
   db.prepare('DELETE FROM audit WHERE at < ?').run(now - 180 * 24 * HOUR);
 
+  // Guest (anonymous) customers unused for 180 days: forget their saved details.
+  const staleGuests = db.prepare("SELECT uid FROM customers WHERE provider = 'anonymous' AND last_seen < ?").all(now - 180 * 24 * HOUR);
+  for (const g of staleGuests) {
+    db.prepare('UPDATE orders SET customer_uid = NULL WHERE customer_uid = ?').run(g.uid);
+    db.prepare('DELETE FROM customers WHERE uid = ?').run(g.uid);
+  }
+
   for (const name of fs.readdirSync(TMP_DIR)) {
     const p = path.join(TMP_DIR, name);
     try {

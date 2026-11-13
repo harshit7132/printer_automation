@@ -1,89 +1,94 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Welcome to Firebase Hosting</title>
-
-    <!-- update the version number as needed -->
-    <script defer src="/__/firebase/13.3.0/firebase-app-compat.js"></script>
-    <!-- include only the Firebase features as you need -->
-    <script defer src="/__/firebase/13.3.0/firebase-auth-compat.js"></script>
-    <script defer src="/__/firebase/13.3.0/firebase-database-compat.js"></script>
-    <script defer src="/__/firebase/13.3.0/firebase-firestore-compat.js"></script>
-    <script defer src="/__/firebase/13.3.0/firebase-functions-compat.js"></script>
-    <script defer src="/__/firebase/13.3.0/firebase-messaging-compat.js"></script>
-    <script defer src="/__/firebase/13.3.0/firebase-storage-compat.js"></script>
-    <script defer src="/__/firebase/13.3.0/firebase-analytics-compat.js"></script>
-    <script defer src="/__/firebase/13.3.0/firebase-remote-config-compat.js"></script>
-    <script defer src="/__/firebase/13.3.0/firebase-performance-compat.js"></script>
-    <!-- 
-      initialize the SDK after all desired features are loaded, set useEmulator to false
-      to avoid connecting the SDK to running emulators.
-    -->
-    <script defer src="/__/firebase/init.js?useEmulator=true"></script>
-
-    <style media="screen">
-      body { background: #ECEFF1; color: rgba(0,0,0,0.87); font-family: Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; }
-      #message { background: white; max-width: 360px; margin: 100px auto 16px; padding: 32px 24px; border-radius: 3px; }
-      #message h2 { color: #ffa100; font-weight: bold; font-size: 16px; margin: 0 0 8px; }
-      #message h1 { font-size: 22px; font-weight: 300; color: rgba(0,0,0,0.6); margin: 0 0 16px;}
-      #message p { line-height: 140%; margin: 16px 0 24px; font-size: 14px; }
-      #message a { display: block; text-align: center; background: #039be5; text-transform: uppercase; text-decoration: none; color: white; padding: 16px; border-radius: 4px; }
-      #message, #message a { box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); }
-      #load { color: rgba(0,0,0,0.4); text-align: center; font-size: 13px; }
-      @media (max-width: 600px) {
-        body, #message { margin-top: 0; background: white; box-shadow: none; }
-        body { border-top: 16px solid #ffa100; }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="message">
-      <h2>Welcome</h2>
-      <h1>Firebase Hosting Setup Complete</h1>
-      <p>You're seeing this because you've successfully setup Firebase Hosting. Now it's time to go build something extraordinary!</p>
-      <a target="_blank" href="https://firebase.google.com/docs/hosting/">Open Hosting Documentation</a>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#5b3df5">
+  <title>e-Mitra — Print & Design</title>
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg></span>
+      <span class="brand-name" data-shop-name>e-Mitra</span>
+    </a>
+    <div class="top-actions">
+      <button class="acct-btn hidden" id="accountBtn" type="button"></button>
+      <button class="lang-toggle" id="langToggle" type="button" data-i18n="lang_switch">हिंदी</button>
     </div>
-    <p id="load">Firebase SDK Loading&hellip;</p>
+  </header>
 
-    <script>
-      document.addEventListener('DOMContentLoaded', function() {
-        const loadEl = document.querySelector('#load');
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
-        // // The Firebase SDK is initialized and available here!
-        //
-        // firebase.auth().onAuthStateChanged(user => { });
-        // firebase.database().ref('/path/to/ref').on('value', snapshot => { });
-        // firebase.firestore().doc('/foo/bar').get().then(() => { });
-        // firebase.functions().httpsCallable('yourFunction')().then(() => { });
-        // firebase.messaging().requestPermission().then(() => { });
-        // firebase.storage().ref('/path/to/ref').getDownloadURL().then(() => { });
-        // firebase.analytics(); // call to activate
-        // firebase.analytics().logEvent('tutorial_completed');
-        // firebase.performance(); // call to activate
-        //
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
+  <main class="container">
+    <div class="notice hidden" id="notice">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v.5M12 11v5"/></svg>
+      <span id="noticeText"></span>
+    </div>
 
-        try {
-          let app = firebase.app();
-          let features = [
-            'auth', 
-            'database', 
-            'firestore',
-            'functions',
-            'messaging', 
-            'storage', 
-            'analytics', 
-            'remoteConfig',
-            'performance',
-          ].filter(feature => typeof app[feature] === 'function');
-          loadEl.textContent = `Firebase SDK loaded with ${features.join(', ')}`;
-        } catch (e) {
-          console.error(e);
-          loadEl.textContent = 'Error loading the Firebase SDK, check the console.';
-        }
-      });
-    </script>
-  </body>
+    <section class="hero">
+      <h1><span data-i18n="home_title_1">Print & design,</span><br><span class="grad" data-i18n="home_title_2">without waiting</span></h1>
+      <p data-i18n="home_sub">Scan, upload and pay by UPI — your prints come out automatically.</p>
+    </section>
+
+    <div class="actions-grid">
+      <a class="action-card print" href="/print" id="cardPrint">
+        <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg></span>
+        <span class="closed-tag hidden" data-i18n="closed">Not available right now</span>
+        <h3 data-i18n="card_print_title">Print documents</h3>
+        <p data-i18n="card_print_sub">PDF & photos</p>
+        <span class="go"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
+      </a>
+      <a class="action-card design" href="/design" id="cardDesign">
+        <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.1-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10.5" cy="7" r="1.2"/><circle cx="15.5" cy="7.5" r="1.2"/></svg></span>
+        <span class="closed-tag hidden" data-i18n="closed">Not available right now</span>
+        <h3 data-i18n="card_design_title">Get a design made</h3>
+        <p data-i18n="card_design_sub">Cards, logos, banners, posters & more</p>
+        <span class="go"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
+      </a>
+    </div>
+
+    <section class="section hidden" id="recentSection">
+      <h2 data-i18n="recent_title">Your recent orders</h2>
+      <div class="recent" id="recent"></div>
+    </section>
+
+    <section class="section hidden" id="offersSection">
+      <h2 data-i18n="offers_title">Offers</h2>
+      <div class="banners" id="banners"></div>
+    </section>
+
+    <section class="section">
+      <h2 data-i18n="how_title">How it works</h2>
+      <div class="how">
+        <div class="how-step"><div class="n">1</div><span data-i18n="how_1">Fill your details</span></div>
+        <div class="how-step"><div class="n">2</div><span data-i18n="how_2">Upload your files</span></div>
+        <div class="how-step"><div class="n">3</div><span data-i18n="how_3">Pay by any UPI app</span></div>
+        <div class="how-step"><div class="n">4</div><span data-i18n="how_4">Collect your prints</span></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 data-i18n="prices_title">Print rates</h2>
+      <div class="rates">
+        <div class="rate"><span class="swatch" style="background:#222"></span><span data-i18n="bw">Black & white</span><b id="priceBw">—</b><small class="muted" data-i18n="per_page">per page</small></div>
+        <div class="rate"><span class="swatch" style="background:linear-gradient(135deg,#ff6a3d,#8b5cf6)"></span><span data-i18n="color">Colour</span><b id="priceColor">—</b><small class="muted" data-i18n="per_page">per page</small></div>
+      </div>
+    </section>
+
+    <section class="section hidden" id="pkgSection">
+      <h2 data-i18n="packages_title">Design packages</h2>
+      <div class="packages" id="packages"></div>
+    </section>
+
+    <p class="footer-note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3z"/><path d="m9 12 2 2 4-4"/></svg>
+      <span id="privacyNote"></span>
+    </p>
+  </main>
+  <script type="module" src="/js/home.js"></script>
+</body>
 </html>
