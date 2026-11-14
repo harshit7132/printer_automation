@@ -27,7 +27,7 @@ app.use(helmet({
       'worker-src': ["'self'", 'blob:'],
       'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       'font-src': ["'self'", 'https://fonts.gstatic.com'],
-      'img-src': ["'self'", 'data:'],
+      'img-src': ["'self'", 'data:', 'blob:'],
       'connect-src': ["'self'", 'https://identitytoolkit.googleapis.com', 'https://securetoken.googleapis.com', 'https://www.googleapis.com'],
       'frame-src': [...fbAuthDomain, 'https://accounts.google.com', 'https://apis.google.com'],
       'form-action': ["'self'"],
@@ -54,6 +54,7 @@ app.use('/admin', (req, res, next) => {
   res.set('X-Robots-Tag', 'noindex, nofollow');
   next();
 });
+app.use('/vendor/pdf-lib', express.static(path.join(config.root, 'node_modules/pdf-lib/dist')));
 app.use(express.static(config.publicDir, {
   extensions: ['html'],
   setHeaders: (res, p) => {

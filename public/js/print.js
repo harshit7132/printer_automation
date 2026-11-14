@@ -550,6 +550,20 @@ window.addEventListener('langchange', () => {
 });
 
 loadSavedCustomer();
+
+try {
+  const direct = sessionStorage.getItem('emitra_direct_print_file');
+  if (direct) {
+    sessionStorage.removeItem('emitra_direct_print_file');
+    const { name, type, b64 } = JSON.parse(direct);
+    const bin = atob(b64);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const f = new File([u8], name, { type });
+    addFiles([f]);
+  }
+} catch { /* ignore */ }
+
 renderLocal();
 
 const resumeId = new URLSearchParams(location.search).get('resume') || sessionStorage.getItem(PRINT_ORDER_KEY);

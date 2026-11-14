@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10b981">
+  <title>PDF & AI Tools — e-Mitra</title>
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .tools-nav {
+      display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 12px; scrollbar-width: none;
+    }
+    .tools-nav::-webkit-scrollbar { display: none; }
+    .tool-tab {
+      flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+      border-radius: 999px; background: var(--surface); border: 1px solid var(--line);
+      color: var(--text); font-weight: 600; font-size: 0.95rem; cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .tool-tab:hover { border-color: var(--primary); }
+    .tool-tab.active {
+      background: var(--primary); color: #ffffff; border-color: var(--primary);
+      box-shadow: 0 4px 14px rgba(91, 61, 245, 0.35);
+    }
+    .preset-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    .preset-chip {
+      padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--surface-2); font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    }
+    .preset-chip.active {
+      background: var(--primary-soft); color: var(--primary); border-color: var(--primary);
+    }
+    .result-card {
+      margin-top: 20px; padding: 20px; border-radius: var(--radius);
+      background: var(--surface-2); border: 1px dashed var(--line); text-align: center;
+    }
+    .preview-box {
+      max-width: 100%; max-height: 380px; border-radius: 12px;
+      margin: 14px auto; box-shadow: var(--shadow); display: block; object-fit: contain;
+    }
+    .pay-banner {
+      background: var(--warn-soft); border: 1px solid var(--warn); border-radius: 12px;
+      padding: 14px; margin-top: 14px; text-align: left;
+    }
+    .free-badge {
+      display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+      border-radius: 999px; background: var(--ok-soft); color: var(--ok);
+      font-size: 0.85rem; font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9"/></svg></span>
+      <span class="brand-name" data-shop-name>e-Mitra</span>
+    </a>
+    <div class="top-actions">
+      <button class="acct-btn hidden" id="accountBtn" type="button"></button>
+      <button class="lang-toggle" id="langToggle" type="button" data-i18n="lang_switch">हिंदी</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div style="margin: 16px 0 10px">
+      <h1 style="font-size: 1.6rem; margin-bottom: 4px" data-i18n="tools_head">PDF & AI Document Studio</h1>
+      <p class="muted small" data-i18n="tools_sub">Fast, private document tools for students, forms & exams. First use is Free!</p>
+    </div>
+
+    <!-- Navigation Pills -->
+    <nav class="tools-nav" id="toolsNav">
+      <button class="tool-tab active" data-tool="compress">🗜️ <span data-i18n="t_compress">Compress PDF</span></button>
+      <button class="tool-tab" data-tool="merge">📑 <span data-i18n="t_merge">Merge PDF</span></button>
+      <button class="tool-tab" data-tool="img2pdf">🖼️ <span data-i18n="t_img2pdf">Photos to PDF</span></button>
+      <button class="tool-tab" data-tool="scanner">🔍 <span data-i18n="t_scanner">AI Scanner</span></button>
+      <button class="tool-tab" data-tool="resizer">🪪 <span data-i18n="t_resizer">Govt Photo Resizer</span></button>
+      <button class="tool-tab" data-tool="split">✂️ <span data-i18n="t_split">Split PDF</span></button>
+      <button class="tool-tab" data-tool="unlock">🔓 <span data-i18n="t_unlock">Unlock Aadhaar</span></button>
+    </nav>
+
+    <!-- Tool Panels Container -->
+    <div id="toolBody" class="card" style="margin-top: 12px">
+      <div id="toolHeader" style="margin-bottom: 16px">
+        <h2 id="toolTitle" style="margin:0 0 4px">🗜️ Compress PDF</h2>
+        <p class="muted small" id="toolDesc" style="margin:0">Shrink PDF size to fit Rajasthan SSO, UPSC, SSC, and university admission portals.</p>
+      </div>
+
+      <!-- Dropzone -->
+      <label class="dropzone" id="toolDropzone">
+        <input type="file" id="toolFileInput">
+        <span class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></span>
+        <b id="toolDropTitle" data-i18n="drop_title">Tap to choose files</b>
+        <small id="toolDropSub" class="muted">Supports PDF, JPG, PNG, HEIC</small>
+      </label>
+
+      <!-- Selected files list -->
+      <div class="file-list" id="toolFileList" style="margin-top: 12px"></div>
+
+      <!-- Tool Options Area -->
+      <div id="toolOptions" style="margin-top: 16px"></div>
+
+      <!-- Action Button -->
+      <button class="btn btn-primary btn-lg btn-block" type="button" id="toolActionBtn" style="margin-top: 16px" disabled>
+        Process Document
+      </button>
+
+      <!-- Progress Box -->
+      <div id="toolProgress" class="hidden" style="margin-top: 16px">
+        <div class="progress"><div id="toolProgressBar" style="width: 50%"></div></div>
+        <p class="muted small center" id="toolProgressText" style="margin-top: 8px">Processing...</p>
+      </div>
+
+      <!-- Result Screen -->
+      <div id="toolResult" class="result-card hidden"></div>
+    </div>
+  </main>
+
+  <script type="module" src="/js/tools.js"></script>
+</body>
+</html>
