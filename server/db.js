@@ -116,6 +116,8 @@ const DEFAULTS = {
   flip_text_hi: 'छपे हुए पेज आउटपुट ट्रे से बिना क्रम बदले निकालें। पूरी गड्डी को पलटें और छपी तरफ़ ऊपर, ऊपरी किनारा पहले रखते हुए पेपर ट्रे में वापस रखें। फिर "आगे बढ़ें" दबाएं।',
   counter_print: 0,
   counter_design: 0,
+  paper_tray_count: 0,
+  paper_tray_max: 150,
   seeded: 0,
 };
 const insDefault = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');

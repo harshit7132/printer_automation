@@ -12,6 +12,7 @@ import { notifyOwner } from '../notify.js';
 import { capabilities, normalizeOptions, readOpts } from '../printopts.js';
 import { continueAfterFlip } from '../printer.js';
 import { accountsEnabled } from '../customers.js';
+import { emitOrderUpdate, orderEvents } from '../events.js';
 import { HttpError, asyncH, cleanText, cleanPhone, clampInt, isId, contentDisposition } from '../util.js';
 
 export const SERVICES = ['logo', 'visiting', 'wedding', 'banner', 'poster', 'social', 'biodata', 'other'];
@@ -78,6 +79,7 @@ r.post('/print-orders', createLimiter, upload.array('files', 20), asyncH(async (
     processed.forEach((p, i) => storeFile(id, 'print', p, i));
     db.prepare('UPDATE orders SET amount = ? WHERE id = ?').run(computePrintAmount(id, s), id);
     audit('customer', 'created', id, `${code} (${files.length} files)`);
+    emitOrderUpdate(id);
     res.json(await publicView(loadOrder(id)));
   } finally {
     cleanupTmp(req);
@@ -152,6 +154,7 @@ r.post('/design-orders', createLimiter, upload.fields([{ name: 'resources', maxC
     procRes.forEach((p, i) => storeFile(id, 'resource', p, i));
     procRef.forEach((p, i) => storeFile(id, 'reference', p, i));
     audit('customer', 'created', id, code);
+    emitOrderUpdate(id);
     res.json(await publicView(loadOrder(id)));
   } finally {
     cleanupTmp(req);
@@ -161,6 +164,42 @@ r.post('/design-orders', createLimiter, upload.fields([{ name: 'resources', maxC
 // ---------- Shared ----------
 r.get('/orders/:id', readLimiter, asyncH(async (req, res) => {
   res.json(await publicView(mustLoad(req.params.id)));
+}));
+
+r.get('/orders/:id/events', asyncH(async (req, res) => {
+  const o = mustLoad(req.params.id);
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  if (res.flushHeaders) res.flushHeaders();
+
+  const send = async () => {
+    try {
+      const current = loadOrder(req.params.id);
+      if (!current) return res.end();
+      const payload = JSON.stringify(await publicView(current));
+      res.write(`event: order\ndata: ${payload}\n\n`);
+    } catch {
+      /* client disconnected */
+    }
+  };
+
+  await send();
+
+  const handler = () => { send(); };
+  orderEvents.on(`order:${o.id}`, handler);
+
+  const ping = setInterval(() => {
+    res.write(': ping\n\n');
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(ping);
+    orderEvents.off(`order:${o.id}`, handler);
+  });
 }));
 
 r.post('/orders/:id/payment', actionLimiter, asyncH(async (req, res) => {
@@ -173,6 +212,17 @@ r.post('/orders/:id/payment', actionLimiter, asyncH(async (req, res) => {
   setStatus(o.id, 'payment_submitted', { pii: encryptJSON(pii), paid_at: Date.now(), admin_note: null });
   audit('customer', 'payment_submitted', o.id, o.code);
   notifyOwner(`💰 Verify payment\n${o.code} • ₹${(o.amount / 100).toFixed(2)}\nUTR: ${utr}`);
+  res.json(await publicView(loadOrder(o.id)));
+}));
+
+r.post('/orders/:id/cash', actionLimiter, asyncH(async (req, res) => {
+  const o = mustLoad(req.params.id);
+  if (o.status !== 'awaiting_payment') throw new HttpError(409, 'bad_state', 'This order is not waiting for payment');
+  const pii = decryptJSON(o.pii) || {};
+  pii.paymentMode = 'cash';
+  setStatus(o.id, 'payment_submitted', { pii: encryptJSON(pii), paid_at: Date.now(), admin_note: null });
+  audit('customer', 'cash_submitted', o.id, o.code);
+  notifyOwner(`💵 Cash payment\n${o.code} • ₹${(o.amount / 100).toFixed(2)}\nCollect cash at counter`);
   res.json(await publicView(loadOrder(o.id)));
 }));
 

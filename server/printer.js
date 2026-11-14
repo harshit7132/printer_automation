@@ -8,6 +8,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import pdfLib from 'pdf-lib';
 import { config } from './config.js';
 import { db, getSettings, audit } from './db.js';
@@ -15,6 +17,8 @@ import { readStored } from './files.js';
 import { setStatus } from './orders.js';
 import { notifyOwner } from './notify.js';
 import { readOpts, parseRange, SUMATRA_PAPER } from './printopts.js';
+
+const execFileAsync = promisify(execFile);
 
 const { PDFDocument, StandardFonts, rgb } = pdfLib;
 let ptp; // pdf-to-printer module, false if unavailable
@@ -59,7 +63,28 @@ export async function printPdf(buf, settings = {}, label = '') {
   const file = path.join(dir, 'job.pdf');
   try {
     fs.writeFileSync(file, buf, { mode: 0o600 });
-    await p.print(file, { silent: true, ...settings });
+    const sumatraExe = path.resolve(config.root, 'node_modules/pdf-to-printer/dist/SumatraPDF-3.4.6-32.exe');
+    if (settings.password && fs.existsSync(sumatraExe)) {
+      const args = [];
+      if (settings.printer) args.push('-print-to', settings.printer);
+      else args.push('-print-to-default');
+      args.push('-silent');
+      args.push('-pwd', settings.password);
+      const printSettings = [];
+      if (settings.pages) printSettings.push(settings.pages);
+      if (settings.orientation) printSettings.push(settings.orientation);
+      if (settings.scale) printSettings.push(settings.scale);
+      if (settings.monochrome) printSettings.push('monochrome');
+      else if (settings.monochrome === false) printSettings.push('color');
+      if (settings.side) printSettings.push(settings.side);
+      if (settings.paperSize) printSettings.push(`paper=${settings.paperSize}`);
+      if (settings.copies) printSettings.push(`${settings.copies}x`);
+      if (printSettings.length) args.push('-print-settings', printSettings.join(','));
+      args.push(file);
+      await execFileAsync(sumatraExe, args);
+    } else {
+      await p.print(file, { silent: true, ...settings });
+    }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true }); // decrypted copy never stays on disk
   }
@@ -73,6 +98,7 @@ function driverSettings(o, f, printer, extra = {}) {
     paperSize: SUMATRA_PAPER[o.paper] || 'A4',
     ...extra,
   };
+  if (o.password) s.password = o.password;
   if (o.orientation !== 'auto') s.orientation = o.orientation;
   return s;
 }
@@ -175,12 +201,33 @@ async function tick() {
     } else {
       setStatus(order.id, 'printed', { done_at: Date.now() });
       audit('printer', 'printed', order.id, order.code);
+      try {
+        const pFiles = db.prepare("SELECT * FROM files WHERE order_id = ? AND kind = 'print' AND purged = 0").all(order.id);
+        let sheets = 0;
+        for (const f of pFiles) {
+          const o = readOpts(f);
+          const pgs = f.sel_pages || f.pages || 1;
+          const perCopy = o.sides === 'single' ? pgs : Math.ceil(pgs / 2);
+          sheets += perCopy * (f.copies || 1);
+        }
+        const curCount = Number(db.prepare("SELECT value FROM settings WHERE key='paper_tray_count'").get()?.value || 0);
+        const maxCount = Number(db.prepare("SELECT value FROM settings WHERE key='paper_tray_max'").get()?.value || 150);
+        const nextCount = curCount + sheets;
+        db.prepare("UPDATE settings SET value = ? WHERE key = 'paper_tray_count'").run(String(nextCount));
+        if (curCount < Math.floor(maxCount * 0.8) && nextCount >= Math.floor(maxCount * 0.8)) {
+          notifyOwner(`⚠️ Paper tray running low: ${nextCount}/${maxCount} sheets used. Please refill paper.`);
+        }
+      } catch (err) {
+        console.warn('Tray counter error:', err.message);
+      }
     }
   } catch (e) {
     console.error(`Print failed for ${order.code}:`, e.message);
-    setStatus(order.id, 'failed', { error: String(e.message).slice(0, 300) });
+    const msg = String(e.message || '');
+    const userMsg = msg.toLowerCase().includes('password') || msg.toLowerCase().includes('pwd') ? 'Incorrect PDF password' : msg.slice(0, 300);
+    setStatus(order.id, 'failed', { error: userMsg });
     audit('printer', 'failed', order.id, e.message);
-    notifyOwner(`⚠️ Print failed: ${order.code}\n${e.message}`);
+    notifyOwner(`⚠️ Print failed: ${order.code}\n${userMsg}`);
   } finally {
     busy = false;
     current = null;

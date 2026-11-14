@@ -42,20 +42,126 @@ $('#detailsForm').addEventListener('submit', (e) => {
 });
 $$('[data-back]').forEach((b) => b.addEventListener('click', () => show(Number(b.dataset.back))));
 
+const isImage = (f) => /\.(jpe?g|png|webp)$/i.test(f.name) || (f.type && f.type.startsWith('image/'));
+
+async function rotateImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.height;
+      canvas.height = img.width;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate((90 * Math.PI) / 180);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      canvas.toBlob((blob) => {
+        if (!blob) return reject(new Error('Canvas error'));
+        resolve(new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }));
+      }, 'image/jpeg', 0.95);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Could not load image'));
+    };
+    img.src = url;
+  });
+}
+
+async function combineTwoImagesIntoA4(frontFile, backFile) {
+  const loadImg = (file) => new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Failed to load image')); };
+    img.src = url;
+  });
+
+  const [front, back] = await Promise.all([loadImg(frontFile), loadImg(backFile)]);
+  const canvas = document.createElement('canvas');
+  canvas.width = 1240;
+  canvas.height = 1754;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const drawCard = (img, centerY) => {
+    const maxW = 800;
+    const maxH = 520;
+    let w = img.width;
+    let h = img.height;
+    const scale = Math.min(maxW / w, maxH / h);
+    w *= scale;
+    h *= scale;
+    const x = (canvas.width - w) / 2;
+    const y = centerY - h / 2;
+    ctx.drawImage(img, x, y, w, h);
+    ctx.strokeStyle = '#dddddd';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+  };
+
+  drawCard(front, 470);
+  drawCard(back, 1220);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) return reject(new Error('Canvas error'));
+      resolve(new File([blob], 'ID_Card_2in1.jpg', { type: 'image/jpeg' }));
+    }, 'image/jpeg', 0.94);
+  });
+}
+
 // ---------- Step 2: choose files ----------
 function renderLocal() {
   $('#dropSub').textContent = t('drop_sub_print', { mb: MAX_MB });
-  $('#localList').innerHTML = state.local.map((f, i) => `
+  const canCombineId = state.local.length === 2 && state.local.every(isImage);
+  const itemsHtml = state.local.map((f, i) => `
     <div class="file-item">
       ${fileIcon(f.name)}
       <div class="fmeta"><div class="fname">${esc(f.name)}</div><div class="fsub">${fmtSize(f.size)}</div></div>
-      <button class="icon-btn" type="button" data-rm="${i}" aria-label="${esc(t('remove'))}">${ICONS.trash}</button>
+      <div style="display:flex;align-items:center;gap:4px">
+        ${isImage(f) ? `<button class="icon-btn" type="button" data-rot="${i}" title="${esc(t('rotate'))}">↻</button>` : ''}
+        <button class="icon-btn" type="button" data-rm="${i}" aria-label="${esc(t('remove'))}">${ICONS.trash}</button>
+      </div>
     </div>`).join('');
+  const idBannerHtml = canCombineId ? `
+    <div class="card" style="margin-top:10px;padding:12px;background:var(--surface-2);border:1px dashed var(--brand);border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div>
+        <div style="font-weight:700;font-size:0.95rem">🪪 ${esc(t('id_combine_title'))}</div>
+        <p class="muted small" style="margin:2px 0 0">${esc(t('id_combine_sub'))}</p>
+      </div>
+      <button class="btn btn-sm btn-primary" type="button" id="combineIdBtn">${esc(t('id_combine_btn'))}</button>
+    </div>` : '';
+  $('#localList').innerHTML = itemsHtml + idBannerHtml;
   $('#uploadBtn').disabled = !state.local.length;
 }
 
-function addFiles(list) {
-  for (const f of list) {
+async function prepareFile(f) {
+  const ext = (f.name.split('.').pop() || '').toLowerCase();
+  if (['heic', 'heif'].includes(ext) || f.type === 'image/heic' || f.type === 'image/heif') {
+    try {
+      toast(t('converting_heic'), 'info');
+      const mod = await import('https://cdn.jsdelivr.net/npm/heic2any@0.0.4/+esm');
+      const heic2any = mod.default || mod;
+      const res = await heic2any({ blob: f, toType: 'image/jpeg', quality: 0.92 });
+      const blob = Array.isArray(res) ? res[0] : res;
+      const cleanName = f.name.replace(/\.(heic|heif)$/i, '') + '.jpg';
+      return new File([blob], cleanName, { type: 'image/jpeg' });
+    } catch {
+      toast(t('err_heic', { f: f.name }), 'bad');
+      return null;
+    }
+  }
+  return f;
+}
+
+async function addFiles(list) {
+  for (let f of list) {
+    f = await prepareFile(f);
+    if (!f) continue;
     const ext = (f.name.split('.').pop() || '').toLowerCase();
     if (!OK_EXT.includes(ext)) { toast(t('err_file_type', { f: f.name }), 'bad'); continue; }
     if (f.size > MAX_MB * 1048576) { toast(t('err_file_size', { f: f.name, mb: MAX_MB }), 'bad'); continue; }
@@ -71,9 +177,37 @@ const dz = $('#dropzone');
 dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('over'); });
 dz.addEventListener('dragleave', () => dz.classList.remove('over'));
 dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('over'); addFiles(e.dataTransfer.files); });
-$('#localList').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-rm]');
-  if (b) { state.local.splice(Number(b.dataset.rm), 1); renderLocal(); }
+$('#localList').addEventListener('click', async (e) => {
+  const rm = e.target.closest('[data-rm]');
+  if (rm) { state.local.splice(Number(rm.dataset.rm), 1); renderLocal(); return; }
+  const rot = e.target.closest('[data-rot]');
+  if (rot) {
+    const idx = Number(rot.dataset.rot);
+    const targetFile = state.local[idx];
+    if (targetFile) {
+      rot.disabled = true;
+      try {
+        state.local[idx] = await rotateImageFile(targetFile);
+        renderLocal();
+        toast(t('rotated_ok'), 'info');
+      } catch {
+        toast('Could not rotate image', 'bad');
+      }
+    }
+    return;
+  }
+  const comb = e.target.closest('#combineIdBtn');
+  if (comb) {
+    comb.disabled = true;
+    try {
+      const combined = await combineTwoImagesIntoA4(state.local[0], state.local[1]);
+      state.local = [combined];
+      renderLocal();
+      toast(t('id_combined_ok'), 'ok');
+    } catch {
+      toast('Could not combine images', 'bad');
+    }
+  }
 });
 
 /** Turns server file rows into editable option objects, starting from the customer's saved preferences. */
@@ -196,6 +330,16 @@ function optCard(f, multi) {
       </div>
       ${f.sides === 'manual' && n > 1 ? `<p class="opt-hint">ℹ️ <span>${esc(t('manual_hint'))}</span></p>` : ''}
       ${f.encrypted && caps.sides.includes('manual') && f.pages > 1 ? `<p class="opt-hint">🔒 <span>${esc(t('enc_note'))}</span></p>` : ''}
+      ${f.encrypted ? `
+      <div class="pdf-pwd-box" style="margin-top:10px;padding:10px;background:var(--surface-2);border-radius:10px;border:1px dashed var(--line);text-align:left">
+        <div style="display:flex;align-items:center;gap:6px;font-size:0.85rem;font-weight:600">
+          <span>🔒</span> <span>${esc(t('pwd_label'))}</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <input type="text" class="pwd-input" data-pwd value="${esc(f.password || '')}" placeholder="${esc(t('pwd_ph'))}" style="font-family:monospace;letter-spacing:1px;font-weight:600;text-transform:uppercase" autocomplete="off" autocapitalize="characters">
+        </div>
+        <p class="opt-hint" style="margin-top:4px;font-size:0.75rem">${esc(t('pwd_hint'))}</p>
+      </div>` : ''}
       <div class="opt-row" style="margin-top:12px">
         <span class="lbl">${esc(t('copies'))}</span>
         <div class="stepper">
@@ -263,6 +407,7 @@ $('#optList').addEventListener('input', (e) => {
   const f = fileOf(e.target);
   if (e.target.matches('[data-copies]')) f.copies = Math.min(100, Math.max(1, parseInt(e.target.value, 10) || 1));
   if (e.target.matches('[data-range]')) f.range = e.target.value;
+  if (e.target.matches('[data-pwd]')) f.password = e.target.value.trim();
   renderTotal();
 });
 $('#optList').addEventListener('toggle', (e) => {
@@ -277,6 +422,7 @@ $('#payBtn').addEventListener('click', async () => {
     const files = kept.map((f) => ({
       id: f.id, copies: f.copies, color: f.color, sides: f.sides, paper: f.paper, orientation: f.orientation, scale: f.scale,
       range: f.rangeMode === 'custom' ? f.range : '',
+      password: f.password || '',
     }));
     const order = await api(`/api/orders/${encodeURIComponent(state.order.id)}/print-options`, { method: 'PUT', body: { files } });
     if (savePrompt.shouldSave()) {

@@ -25,6 +25,12 @@ export function sniff(buf) {
   if (head(6) === 'GIF87a' || head(6) === 'GIF89a') return { ext: 'gif', mime: 'image/gif' };
   if (head(4) === '8BPS') return { ext: 'psd', mime: 'image/vnd.adobe.photoshop' };
   if (buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04) return { ext: 'zip', mime: 'application/zip' };
+  if (buf.length >= 12 && buf.subarray(4, 8).toString('latin1') === 'ftyp') {
+    const brand = buf.subarray(8, 12).toString('latin1').toLowerCase();
+    if (['heic', 'heix', 'hevc', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1'].includes(brand)) {
+      return { ext: 'heic', mime: 'image/heic' };
+    }
+  }
   return null;
 }
 
@@ -64,6 +70,9 @@ export async function processUpload(file, purpose) {
   const name = fixName(file.originalname);
   const buf = await fs.promises.readFile(file.path);
   const type = sniff(buf);
+  if (type?.ext === 'heic') {
+    throw new HttpError(400, 'heic_not_supported', `"${name}" is an iPhone HEIC photo. Please convert to JPEG or upload as PDF.`, { file: name });
+  }
   const allowed = purpose === 'print' ? PRINT_OK : DESIGN_OK;
   if (!type || !allowed.has(type.ext)) {
     throw new HttpError(400, purpose === 'print' ? 'bad_file_print' : 'bad_file_design', `"${name}" is not a supported file type`, { file: name });

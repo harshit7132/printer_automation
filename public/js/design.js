@@ -75,6 +75,25 @@ $('#briefForm').addEventListener('change', (e) => {
   if (e.target.name === 'pkg') $('#pkgField').classList.remove('invalid');
 });
 
+async function prepareFile(f) {
+  const ext = (f.name.split('.').pop() || '').toLowerCase();
+  if (['heic', 'heif'].includes(ext) || f.type === 'image/heic' || f.type === 'image/heif') {
+    try {
+      toast(t('converting_heic'), 'info');
+      const mod = await import('https://cdn.jsdelivr.net/npm/heic2any@0.0.4/+esm');
+      const heic2any = mod.default || mod;
+      const res = await heic2any({ blob: f, toType: 'image/jpeg', quality: 0.92 });
+      const blob = Array.isArray(res) ? res[0] : res;
+      const cleanName = f.name.replace(/\.(heic|heif)$/i, '') + '.jpg';
+      return new File([blob], cleanName, { type: 'image/jpeg' });
+    } catch {
+      toast(t('err_heic', { f: f.name }), 'bad');
+      return null;
+    }
+  }
+  return f;
+}
+
 // Step 3: files
 function renderFiles(key) {
   $(`#${key}List`).innerHTML = state[key].map((f, i) => `
@@ -86,8 +105,10 @@ function renderFiles(key) {
 }
 for (const [key, max] of [['res', 12], ['ref', 6]]) {
   const input = $(`#${key}Input`);
-  input.addEventListener('change', () => {
-    for (const f of input.files) {
+  input.addEventListener('change', async () => {
+    for (let f of input.files) {
+      f = await prepareFile(f);
+      if (!f) continue;
       if (f.size > MAX_MB * 1048576) { toast(t('err_file_size', { f: f.name, mb: MAX_MB }), 'bad'); continue; }
       if (state[key].length < max && !state[key].some((x) => x.name === f.name && x.size === f.size)) state[key].push(f);
     }

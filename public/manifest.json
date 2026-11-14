@@ -1,0 +1,17 @@
+{
+  "name": "e-Mitra Print Studio",
+  "short_name": "PrintStudio",
+  "description": "Self-service print and design kiosk for your local e-Mitra shop",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#5b3df5",
+  "icons": [
+    {
+      "src": "/img/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -45,6 +45,8 @@ function timeline(o) {
 function payCard(o) {
   const p = o.payment || {};
   if (p.unavailable) return `<div class="card"><div class="alert warn">${ICONS.alert}<span>${esc(t('pay_unavailable'))}</span></div></div>`;
+  const rawLink = p.link || '';
+  const query = rawLink.includes('?') ? rawLink.slice(rawLink.indexOf('?') + 1) : '';
   return `
   <div class="card pay-card">
     ${o.note ? `<div class="alert warn">${ICONS.alert}<span><b>${esc(t('owner_note'))}</b> ${esc(o.note)}</span></div>` : ''}
@@ -52,7 +54,12 @@ function payCard(o) {
     <div class="pay-amount">${rupees(o.amount)}</div>
     <div class="qr-wrap"><img src="${p.qr}" alt="UPI QR code" width="240" height="240"></div>
     <p class="muted small" style="margin:6px 0 4px">${esc(t('pay_scan'))}</p>
-    <div class="upi-apps"><span>PhonePe</span><span>Google Pay</span><span>Paytm</span><span>BHIM</span></div>
+    <div class="upi-apps">
+      <a class="app-chip" href="phonepe://pay?${esc(query)}">PhonePe</a>
+      <a class="app-chip" href="gpay://upi/pay?${esc(query)}">Google Pay</a>
+      <a class="app-chip" href="paytmmp://pay?${esc(query)}">Paytm</a>
+      <a class="app-chip" href="${esc(p.link)}">BHIM</a>
+    </div>
     <div class="upi-id"><code>${esc(p.upiId)}</code><button class="btn btn-sm btn-ghost" type="button" id="copyUpi">${esc(t('copy'))}</button></div>
     <a class="btn btn-ghost btn-block" href="${esc(p.link)}" id="upiLink">${esc(t('pay_open_app'))}</a>
     <div class="divider">↓</div>
@@ -65,6 +72,9 @@ function payCard(o) {
       </div>
       <button class="btn btn-primary btn-lg btn-block" type="submit">${ICONS.check} ${esc(t('utr_submit'))}</button>
     </form>
+    <div style="margin-top:14px;border-top:1px dashed var(--line);padding-top:14px">
+      <button class="btn btn-ghost btn-block" type="button" id="payCashBtn">${esc(t('pay_cash_btn'))}</button>
+    </div>
   </div>`;
 }
 
@@ -83,6 +93,14 @@ function flipCard(o) {
 function statusCard(o) {
   const s = o.status;
   if (s === 'flip_needed') return flipCard(o);
+  if (s === 'payment_submitted' && o.paymentMode === 'cash') {
+    return `
+    <div class="card status-hero warn">
+      <div class="big-icon">💵</div>
+      <h2>${esc(t('h_cash_waiting'))}</h2>
+      <p class="muted">${esc(t('cash_waiting', { amount: rupees(o.amount) }))}</p>
+    </div>`;
+  }
   const icon = { printed: ICONS.done, completed: ICONS.done, printing: ICONS.printer, queued: ICONS.printer, failed: ICONS.alert,
     rejected: ICONS.x, cancelled: ICONS.x, expired: ICONS.clock, in_progress: ICONS.palette }[s] || ICONS.clock;
   const tone = ['printed', 'completed'].includes(s) ? 'ok' : ['rejected', 'cancelled', 'expired'].includes(s) ? 'bad' : s === 'failed' ? 'warn' : '';
@@ -175,6 +193,15 @@ function bind() {
       if (err.code === 'bad_state') load();
     }
   });
+  $('#payCashBtn')?.addEventListener('click', async () => {
+    if (!confirm(t('pay_cash_confirm', { amount: rupees(order.amount) }))) return;
+    try {
+      update(await api(`/api/orders/${encodeURIComponent(id)}/cash`, { method: 'POST', body: {} }));
+      toast(t('cash_waiting', { amount: rupees(order.amount) }), 'ok');
+    } catch (err) {
+      toast(errorText(err), 'bad');
+    }
+  });
   $('#flipBtn')?.addEventListener('click', async (e) => {
     e.currentTarget.disabled = true;
     try {
@@ -194,6 +221,26 @@ function bind() {
   });
 }
 
+let es = null;
+function setupEvents() {
+  if (!('EventSource' in window) || !id) return;
+  if (es) { es.close(); es = null; }
+  try {
+    es = new EventSource('/api/orders/' + encodeURIComponent(id) + '/events');
+    es.addEventListener('order', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data?.id) update(data);
+      } catch { /* ignore */ }
+    });
+    es.onerror = () => {
+      /* EventSource auto-retries, timer fallback continues */
+    };
+  } catch {
+    /* EventSource unavailable */
+  }
+}
+
 function update(o) {
   const prev = order?.status;
   if (!order) myOrders.add(o);
@@ -203,6 +250,10 @@ function update(o) {
     lastSig = sig;
     render();
     if (prev && prev !== o.status && ['printed', 'completed'].includes(o.status)) navigator.vibrate?.([120, 60, 120]);
+  }
+  if (FINAL.includes(order.status) && es) {
+    es.close();
+    es = null;
   }
   schedule();
 }
@@ -231,5 +282,9 @@ function notFound() {
   root.innerHTML = `<div class="card status-hero bad" style="margin-top:24px"><div class="big-icon">${ICONS.x}</div><h2>${esc(t('not_found'))}</h2><a class="btn btn-primary" href="/">${esc(t('new_order'))}</a></div>`;
 }
 
-if (id) load();
-else notFound();
+if (id) {
+  load();
+  setupEvents();
+} else {
+  notFound();
+}

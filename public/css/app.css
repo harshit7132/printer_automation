@@ -339,7 +339,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .qr-wrap { display: inline-block; padding: 14px; background: #fff; border-radius: 20px; box-shadow: var(--shadow); margin: 10px auto 6px; border: 1px solid var(--line); }
 .qr-wrap img { display: block; width: 240px; height: 240px; image-rendering: pixelated; }
 .upi-apps { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; margin: 6px 0 14px; }
-.upi-apps span { font-size: .75rem; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+.upi-apps span, .upi-apps a { font-size: .75rem; font-weight: 700; padding: 5px 12px; border-radius: 999px; background: var(--surface-2); color: var(--text); text-decoration: none; border: 1px solid var(--line); transition: all .15s ease; display: inline-flex; align-items: center; }
+.upi-apps a:hover, .upi-apps a:active { background: var(--brand); color: #fff; border-color: var(--brand); }
 .upi-id { display: inline-flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 12px; background: var(--surface-2); font-weight: 700; margin-bottom: 14px; max-width: 100%; }
 .upi-id code { font-family: inherit; overflow: hidden; text-overflow: ellipsis; }
 .divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: .8rem; font-weight: 600; margin: 18px 0; }

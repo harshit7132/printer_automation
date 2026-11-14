@@ -69,6 +69,7 @@ export function normalizeOptions(input, fileRow, caps, encrypted = false) {
     scale: SCALE.includes(w.scale) ? w.scale : 'fit',
   };
   if (encrypted) opts.encrypted = true;
+  if (typeof w.password === 'string' && w.password.trim()) opts.password = w.password.trim();
   return {
     opts,
     copies: clampInt(w.copies, 1, 100, 1),
@@ -80,9 +81,9 @@ export function normalizeOptions(input, fileRow, caps, encrypted = false) {
 
 export function readOpts(row) {
   try {
-    return { sides: 'single', range: '', paper: 'A4', orientation: 'auto', scale: 'fit', ...JSON.parse(row.opts || '{}') };
+    return { sides: 'single', range: '', paper: 'A4', orientation: 'auto', scale: 'fit', password: '', ...JSON.parse(row.opts || '{}') };
   } catch {
-    return { sides: 'single', range: '', paper: 'A4', orientation: 'auto', scale: 'fit' };
+    return { sides: 'single', range: '', paper: 'A4', orientation: 'auto', scale: 'fit', password: '' };
   }
 }
 

@@ -23,7 +23,8 @@ app.use(helmet({
     useDefaults: true,
     directives: {
       'default-src': ["'self'"],
-      'script-src': ["'self'", 'https://www.gstatic.com', 'https://apis.google.com'],
+      'script-src': ["'self'", 'https://www.gstatic.com', 'https://apis.google.com', 'https://cdn.jsdelivr.net'],
+      'worker-src': ["'self'", 'blob:'],
       'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       'font-src': ["'self'", 'https://fonts.gstatic.com'],
       'img-src': ["'self'", 'data:'],

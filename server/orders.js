@@ -5,12 +5,14 @@ import { decryptJSON } from './crypto.js';
 import { fileName } from './files.js';
 import { isId } from './util.js';
 import { capabilities, readOpts, chargedPages } from './printopts.js';
+import { emitOrderUpdate } from './events.js';
 
 const printFileView = (f) => {
   const o = readOpts(f);
   return {
     id: f.id, name: fileName(f), pages: f.pages, selPages: chargedPages(f), copies: f.copies, color: !!f.color,
     sides: o.sides, range: o.range, paper: o.paper, orientation: o.orientation, scale: o.scale, encrypted: !!o.encrypted,
+    hasPassword: !!o.password,
   };
 };
 
@@ -35,6 +37,7 @@ export function setStatus(id, status, extra = {}) {
     vals.push(v === undefined ? null : v);
   }
   db.prepare(`UPDATE orders SET ${cols.join(', ')} WHERE id = ?`).run(...vals, id);
+  emitOrderUpdate(id);
 }
 
 export function queuePosition(o) {
@@ -72,6 +75,7 @@ export async function publicView(o) {
     type: o.type,
     status: o.status,
     amount: o.amount,
+    paymentMode: pii.paymentMode || 'upi',
     createdAt: o.created_at,
     firstName: (pii.name || '').split(/\s+/)[0] || '',
     note: ['awaiting_payment', 'rejected'].includes(o.status) ? o.admin_note : null,
@@ -114,6 +118,7 @@ export function adminView(o) {
     type: o.type,
     status: o.status,
     amount: o.amount,
+    paymentMode: pii.paymentMode || 'upi',
     createdAt: o.created_at,
     updatedAt: o.updated_at,
     paidAt: o.paid_at,

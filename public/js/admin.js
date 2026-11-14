@@ -24,13 +24,59 @@ let current = TABS.some((t) => t.id === location.hash.slice(1)) ? location.hash.
 let summary = null;
 let lastPending = -1;
 let pollTimer = null;
+let adminEs = null;
 let historyQuery = '';
+let soundEnabled = localStorage.getItem('emitra_sound') !== '0';
+
+function updateSoundUI() {
+  const ico = soundEnabled ? '🔊' : '🔇';
+  const text = soundEnabled ? 'Voice alerts ON' : 'Voice alerts OFF';
+  if ($('#soundIco')) $('#soundIco').textContent = ico;
+  if ($('#soundText')) $('#soundText').textContent = text;
+  if ($('#mobileSoundToggle')) $('#mobileSoundToggle').textContent = ico;
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  localStorage.setItem('emitra_sound', soundEnabled ? '1' : '0');
+  updateSoundUI();
+  toast(soundEnabled ? 'Voice alerts enabled' : 'Voice alerts muted', 'info');
+  if (soundEnabled) speak('Voice alerts enabled', 'en-IN');
+}
+
+function speak(text, lang = 'hi-IN') {
+  if (!soundEnabled || !('speechSynthesis' in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang;
+    u.rate = 1.0;
+    window.speechSynthesis.speak(u);
+  } catch { /* speech blocked */ }
+}
+
+function setupAdminEvents() {
+  if (!('EventSource' in window)) return;
+  if (adminEs) { adminEs.close(); adminEs = null; }
+  try {
+    adminEs = new EventSource('/api/admin/events');
+    adminEs.addEventListener('update', () => {
+      poll();
+    });
+    adminEs.onerror = () => {
+      /* auto-retries, poll interval acts as fallback */
+    };
+  } catch {
+    /* EventSource unavailable */
+  }
+}
 
 const when = (ms) => (ms ? new Date(ms).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '—');
 
 // ---------- auth ----------
 function showLogin() {
   clearInterval(pollTimer);
+  if (adminEs) { adminEs.close(); adminEs = null; }
   $('#appView').classList.add('hidden');
   $('#loginView').classList.remove('hidden');
   $('#u').focus();
@@ -40,10 +86,12 @@ async function showApp() {
   $('#loginView').classList.add('hidden');
   $('#appView').classList.remove('hidden');
   renderTabs();
+  updateSoundUI();
   await refreshSummary();
   renderTab();
   clearInterval(pollTimer);
   pollTimer = setInterval(poll, 8000);
+  setupAdminEvents();
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
 }
 
@@ -103,11 +151,13 @@ function updateCounts() {
 
 async function refreshSummary() {
   summary = await A('/summary');
+  const tray = summary.paperTray || { count: 0, max: 150, low: false };
   $('#stats').innerHTML = `
     <div class="stat hl"><small>Collected today</small><b>${rupees(summary.revenueToday)}</b></div>
     <div class="stat"><small>Orders today</small><b>${summary.ordersToday}</b></div>
     <div class="stat"><small>Waiting for you</small><b>${summary.pending}</b></div>
-    <div class="stat"><small>Print queue${summary.queuePaused ? ' (paused)' : ''}</small><b>${summary.queued}${summary.failed ? ` <span style="color:var(--bad);font-size:.9rem">+${summary.failed} failed</span>` : ''}</b></div>`;
+    <div class="stat"><small>Print queue${summary.queuePaused ? ' (paused)' : ''}</small><b>${summary.queued}${summary.failed ? ` <span style="color:var(--bad);font-size:.9rem">+${summary.failed} failed</span>` : ''}</b></div>
+    <div class="stat ${tray.low ? 'bad' : ''}"><small>Paper tray</small><b>${tray.count}/${tray.max}</b>${tray.count > 0 ? ' <button class="btn btn-xs btn-ghost" id="resetTrayBtn" style="font-size:0.7rem;padding:1px 6px;margin-top:2px">Reset</button>' : ''}</div>`;
   updateCounts();
   if (lastPending >= 0 && summary.pending > lastPending) alertNew(summary.pending - lastPending);
   lastPending = summary.pending;
@@ -128,6 +178,7 @@ function alertNew(n) {
       o.stop(ctx.currentTime + d + 0.16);
     });
   } catch { /* no audio */ }
+  speak(n > 1 ? `${n} naye payment aaye hain, verify karein` : 'Naya payment aaya hai, kripya check karein', 'hi-IN');
   if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
     new Notification('New payment to verify', { body: `${n} order(s) waiting`, icon: '/img/icon.svg' });
   }
@@ -179,9 +230,14 @@ function actionsFor(o, ctx) {
   const b = (act, label, cls = 'btn-ghost') => `<button class="btn btn-sm ${cls}" type="button" data-act="${act}" data-id="${esc(o.id)}">${label}</button>`;
   const acts = [];
   switch (o.status) {
-    case 'payment_submitted':
-      acts.push(b('verify', '✓ Payment received — start', 'btn-ok'), b('payment_missing', 'Not received'), b('reject', 'Reject', 'btn-bad'));
+    case 'payment_submitted': {
+      const isCash = o.customer?.paymentMode === 'cash';
+      const verifyLabel = isCash ? `💵 Cash received (${rupees(o.amount)}) — Print` : '✓ Payment received — start';
+      acts.push(b('verify', verifyLabel, 'btn-ok'));
+      if (!isCash) acts.push(b('payment_missing', 'Not received'));
+      acts.push(b('reject', 'Reject', 'btn-bad'));
       break;
+    }
     case 'awaiting_payment':
       acts.push(b('verify', 'Mark as paid (cash)', 'btn-ok'), b('reject', 'Reject', 'btn-bad'));
       break;
@@ -200,6 +256,10 @@ function actionsFor(o, ctx) {
     case 'in_progress':
       acts.push(b('complete', '✓ Mark delivered', 'btn-ok'), b('cancel', 'Cancel', 'btn-bad'));
       break;
+  }
+  if (['printed', 'completed'].includes(o.status) && o.customer?.phone) {
+    const msg = `नमस्ते ${o.customer?.name || ''}, आपका प्रिंट ऑर्डर ${o.code} तैयार है! कृपया e-Mitra काउंटर से प्राप्त करें।`;
+    acts.push(`<a class="btn btn-sm btn-ghost" href="https://wa.me/91${esc(o.customer.phone)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener noreferrer">💬 WhatsApp</a>`);
   }
   if (ctx === 'history' && o.status !== 'printing') acts.push(b('delete', '🗑 Delete', 'btn-ghost'));
   return acts.join('');
@@ -244,6 +304,7 @@ function orderCard(o, ctx) {
       <span>Created ${when(o.createdAt)}</span>
       ${o.paidAt ? `<span>Paid ${when(o.paidAt)}</span>` : ''}
     </div>
+    ${c.paymentMode === 'cash' ? `<div class="utr-box" style="background:#e6f4ea;border-color:#34a853;color:#137333"><span style="font-weight:700">💵 Cash payment</span> <span class="muted small">Collect <b>${rupees(o.amount)}</b> at counter</span></div>` : ''}
     ${c.utr ? `<div class="utr-box"><small>UTR — match with your bank SMS</small><code>${esc(c.utr)}</code><span class="muted small">for ${rupees(o.amount)}</span></div>` : ''}
     ${c.notes ? `<div class="muted small">📝 ${esc(c.notes)}</div>` : ''}
     ${o.error ? `<div class="oerr">⚠ ${esc(o.error)}</div>` : ''}
@@ -267,7 +328,11 @@ $('#tab').addEventListener('click', async (e) => {
   const amt = card?.querySelector('.amt')?.textContent;
   let note = '';
 
-  if (act === 'verify' && !confirm(`Confirm you received ${amt} for ${code}?\nCheck the amount and UTR in your bank SMS first.`)) return;
+  if (act === 'verify') {
+    const isCash = card?.textContent.includes('Cash payment');
+    const msg = isCash ? `Confirm cash received of ${amt} for ${code}?` : `Confirm you received ${amt} for ${code}?\nCheck the amount and UTR in your bank SMS first.`;
+    if (!confirm(msg)) return;
+  }
   if (['reject', 'payment_missing', 'cancel'].includes(act)) {
     const n = prompt(act === 'payment_missing' ? 'Message to customer (optional):' : `Reason for ${act === 'reject' ? 'rejecting' : 'cancelling'} ${code} (optional):`, '');
     if (n === null) return;
@@ -387,7 +452,10 @@ const VIEWS = {
   async history() {
     const list = await A('/orders?view=history&q=' + encodeURIComponent(historyQuery));
     return `<h1>All orders</h1>
-      <div class="toolbar"><input type="search" id="histSearch" class="grow" placeholder="Search code, name, phone or UTR" value="${esc(historyQuery)}"></div>
+      <div class="toolbar">
+        <input type="search" id="histSearch" class="grow" placeholder="Search code, name, phone or UTR" value="${esc(historyQuery)}">
+        <a class="btn btn-sm btn-ghost" href="/api/admin/export-csv" download style="display:inline-flex;align-items:center;gap:6px">📥 Export CSV</a>
+      </div>
       <div class="orders">${list.map((o) => orderCard(o, 'history')).join('') || empty('📋', 'No orders found.')}</div>`;
   },
 
@@ -436,6 +504,7 @@ const VIEWS = {
         </div>
         <div class="card"><h2>Printer</h2>
           <div class="field"><label>Printer</label><select name="printerName"><option value="">Windows default printer</option>${names.map((n) => `<option ${n === s.printerName ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+          <div class="field" style="margin-top:8px"><label>Paper tray sheet capacity</label><input name="paperTrayMax" type="number" min="20" max="1000" value="${s.paperTrayMax || 150}"><span class="hint">Alerts you when the tray has reached 80% capacity.</span></div>
           <p class="muted small">Mode: <b>${esc(s.printMode)}</b>${s.printMode === 'simulate' ? ' — nothing is really printed. Set PRINT_MODE=auto in .env.' : ''}<br>Files are deleted ${s.retentionHours} hours after an order finishes.</p>
           <button class="btn btn-ghost" type="button" id="testPrint">🖨️ Print test page</button>
         </div>
@@ -543,6 +612,20 @@ const AFTER = {
     $('#printPoster').addEventListener('click', () => window.print());
   },
 };
+
+$('#soundToggle')?.addEventListener('click', toggleSound);
+$('#mobileSoundToggle')?.addEventListener('click', toggleSound);
+
+$('#stats').addEventListener('click', async (e) => {
+  if (e.target.id === 'resetTrayBtn' || e.target.closest('#resetTrayBtn')) {
+    if (!confirm('Reset paper tray counter to 0 (after refilling paper)?')) return;
+    try {
+      await A('/paper-tray/reset', { method: 'POST', body: {} });
+      toast('Paper tray counter reset', 'ok');
+      await refreshSummary();
+    } catch (err) { handleErr(err); }
+  }
+});
 
 // ---------- boot ----------
 A('/me').then(showApp).catch((e) => (e instanceof ApiError && e.status === 401 ? showLogin() : handleErr(e)));

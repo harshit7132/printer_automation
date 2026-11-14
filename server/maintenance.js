@@ -7,9 +7,39 @@ import { purgeOrderFiles, TMP_DIR } from './files.js';
 import { setStatus } from './orders.js';
 
 const HOUR = 3600e3;
+const BACKUP_DIR = path.join(config.dataDir, 'backups');
+fs.mkdirSync(BACKUP_DIR, { recursive: true });
+
+export function backupDatabase() {
+  const dbFile = path.join(config.dataDir, 'app.db');
+  if (!fs.existsSync(dbFile)) return;
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const target = path.join(BACKUP_DIR, `app-${dateStr}.db`);
+  if (!fs.existsSync(target)) {
+    try {
+      db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+      console.log(`[backup] Database backup created: ${target}`);
+    } catch {
+      try {
+        fs.copyFileSync(dbFile, target);
+        console.log(`[backup] Database copy created: ${target}`);
+      } catch (err) {
+        console.error('Backup error:', err.message);
+      }
+    }
+  }
+  try {
+    const files = fs.readdirSync(BACKUP_DIR).filter((f) => f.startsWith('app-') && f.endsWith('.db')).sort();
+    while (files.length > 7) {
+      const old = files.shift();
+      fs.rmSync(path.join(BACKUP_DIR, old), { force: true });
+    }
+  } catch { /* ignore */ }
+}
 
 export function runMaintenance() {
   const now = Date.now();
+  backupDatabase();
 
   for (const o of db.prepare("SELECT id FROM orders WHERE status IN ('draft','awaiting_payment') AND updated_at < ?").all(now - 24 * HOUR)) {
     purgeOrderFiles(o.id);

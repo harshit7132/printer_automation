@@ -8,7 +8,8 @@
     "setup": "node scripts/setup.js",
     "set-password": "node scripts/setup.js --password-only",
     "start": "node --disable-warning=ExperimentalWarning server/index.js",
-    "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js"
+    "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js",
+    "test": "node --disable-warning=ExperimentalWarning scripts/test.js"
   },
   "engines": {
     "node": ">=22.13"

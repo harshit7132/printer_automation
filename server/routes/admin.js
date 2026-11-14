@@ -11,6 +11,7 @@ import { processUpload, storeFile, readStored, purgeOrderFiles, cleanupTmp, file
 import { loadOrder, adminView, setStatus, FINAL } from '../orders.js';
 import { listPrinters, testPage, workerStatus, kick, continueAfterFlip, resetStages } from '../printer.js';
 import { ALL_PAPERS } from '../printopts.js';
+import { orderEvents, emitAdminUpdate } from '../events.js';
 import { HttpError, asyncH, cleanText, clampInt, rupeesToPaise, isId, contentDisposition } from '../util.js';
 
 const r = Router();
@@ -47,6 +48,63 @@ r.post('/logout', (req, res) => {
 
 r.get('/me', (req, res) => res.json({ user: req.admin.u }));
 
+r.get('/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  if (res.flushHeaders) res.flushHeaders();
+
+  const send = () => {
+    try {
+      res.write(`event: update\ndata: ${JSON.stringify({ time: Date.now() })}\n\n`);
+    } catch {
+      /* client disconnected */
+    }
+  };
+
+  send();
+
+  orderEvents.on('admin:change', send);
+
+  const ping = setInterval(() => {
+    res.write(': ping\n\n');
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(ping);
+    orderEvents.off('admin:change', send);
+  });
+});
+
+r.get('/export-csv', (req, res) => {
+  const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 1000').all().map(adminView);
+  const rows = [
+    ['Order Code', 'Type', 'Status', 'Customer Name', 'Phone', 'Amount (INR)', 'Created At', 'Verified At', 'UTR / Ref', 'Notes'],
+  ];
+  for (const o of orders) {
+    rows.push([
+      o.code,
+      o.type,
+      o.status,
+      o.customer?.name || '',
+      o.customer?.phone || '',
+      ((o.amount || 0) / 100).toFixed(2),
+      o.createdAt ? new Date(o.createdAt).toLocaleString('en-IN') : '',
+      o.verifiedAt ? new Date(o.verifiedAt).toLocaleString('en-IN') : '',
+      o.customer?.utr || '',
+      o.adminNote || o.error || '',
+    ]);
+  }
+  const csvContent = '\uFEFF' + rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const filename = `emitra-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(csvContent);
+});
+
 // ---------- Dashboard ----------
 r.get('/summary', (req, res) => {
   const count = (sql, ...a) => db.prepare(sql).get(...a).n;
@@ -66,7 +124,19 @@ r.get('/summary', (req, res) => {
     printerName: s.printer_name || '(Windows default)',
     upiReady: !!s.upi_id,
     worker: workerStatus(),
+    paperTray: {
+      count: Number(s.paper_tray_count || 0),
+      max: Number(s.paper_tray_max || 150),
+      low: Number(s.paper_tray_count || 0) >= Math.floor(Number(s.paper_tray_max || 150) * 0.8),
+    },
   });
+});
+
+r.post('/paper-tray/reset', (req, res) => {
+  setSetting('paper_tray_count', 0);
+  audit('admin', 'paper_tray_reset');
+  emitAdminUpdate();
+  res.json({ ok: true });
 });
 
 const VIEWS = {
@@ -200,6 +270,7 @@ r.post('/queue', (req, res) => {
   setSetting('queue_paused', req.body?.paused ? 1 : 0);
   audit('admin', req.body?.paused ? 'queue_paused' : 'queue_resumed');
   if (!req.body?.paused) kick();
+  emitAdminUpdate();
   res.json({ paused: !!req.body?.paused });
 });
 
@@ -233,12 +304,14 @@ r.get('/settings', (req, res) => {
     flipReverse: s.flip_reverse === '1',
     flipTextEn: s.flip_text_en,
     flipTextHi: s.flip_text_hi,
+    paperTrayMax: Number(s.paper_tray_max || 150),
   });
 });
 
 r.put('/settings', (req, res) => {
   const b = req.body || {};
   const set = (k, v) => v !== undefined && setSetting(k, v);
+  if (b.paperTrayMax !== undefined) set('paper_tray_max', clampInt(b.paperTrayMax, 20, 1000, 150));
   if (b.shopName !== undefined) set('shop_name', cleanText(b.shopName, 60, { required: true, field: 'Shop name' }));
   if (b.upiId !== undefined) {
     const u = cleanText(b.upiId, 100);
@@ -265,6 +338,7 @@ r.put('/settings', (req, res) => {
   if (b.flipTextEn !== undefined) set('flip_text_en', cleanText(b.flipTextEn, 400));
   if (b.flipTextHi !== undefined) set('flip_text_hi', cleanText(b.flipTextHi, 400));
   audit('admin', 'settings_changed');
+  emitAdminUpdate();
   res.json({ ok: true });
 });
 
