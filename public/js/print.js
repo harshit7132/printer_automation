@@ -10,10 +10,90 @@ const OK_EXT = ['pdf', 'jpg', 'jpeg', 'png'];
 
 const state = { step: 1, local: [], order: null, opts: [] };
 let savePrompt = { shouldSave: () => false };
-mountSavePrompt($('#savePrompt'), { name: $('#name'), phone: $('#phone') }).then((p) => { savePrompt = p; });
+mountSavePrompt($('#savePrompt'), { name: $('#name'), phone: $('#phone') }).then((p) => {
+  savePrompt = p;
+  loadSavedCustomer();
+});
+
+const CUSTOMER_STORAGE_KEY = 'emitra_customer_details';
+const PRINT_ORDER_KEY = 'emitra_print_active_order';
+const PRINT_STEP_KEY = 'emitra_print_step';
+
+function loadSavedCustomer() {
+  try {
+    const raw = localStorage.getItem(CUSTOMER_STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    const nameEl = $('#name');
+    const phoneEl = $('#phone');
+    const notesEl = $('#notes');
+    if (nameEl && !nameEl.value && data.name) nameEl.value = data.name;
+    if (phoneEl && !phoneEl.value && data.phone) phoneEl.value = data.phone;
+    if (notesEl && !notesEl.value && data.notes) notesEl.value = data.notes;
+  } catch { /* ignore */ }
+}
+
+function saveCustomerDetails() {
+  try {
+    const data = {
+      name: ($('#name')?.value || '').trim(),
+      phone: ($('#phone')?.value || '').trim(),
+      notes: ($('#notes')?.value || '').trim(),
+    };
+    localStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(data));
+  } catch { /* ignore */ }
+}
+
+function saveOptsToStorage() {
+  if (!state.order?.id || !state.opts?.length) return;
+  try {
+    const toSave = state.opts.map((o) => ({
+      id: o.id,
+      color: o.color,
+      sides: o.sides,
+      copies: o.copies,
+      paper: o.paper,
+      orientation: o.orientation,
+      scale: o.scale,
+      rangeMode: o.rangeMode,
+      range: o.range,
+      password: o.password,
+      removed: o.removed,
+      open: o.open,
+    }));
+    sessionStorage.setItem('emitra_print_opts_' + state.order.id, JSON.stringify(toSave));
+  } catch { /* ignore */ }
+}
+
+function restoreSavedOpts(orderId) {
+  if (!orderId) return;
+  try {
+    const raw = sessionStorage.getItem('emitra_print_opts_' + orderId);
+    if (!raw) return;
+    const list = JSON.parse(raw);
+    const map = new Map(list.map((x) => [x.id, x]));
+    for (const opt of state.opts) {
+      const saved = map.get(opt.id);
+      if (saved) {
+        if (saved.color !== undefined) opt.color = saved.color;
+        if (saved.sides !== undefined) opt.sides = saved.sides;
+        if (saved.copies !== undefined) opt.copies = saved.copies;
+        if (saved.paper !== undefined) opt.paper = saved.paper;
+        if (saved.orientation !== undefined) opt.orientation = saved.orientation;
+        if (saved.scale !== undefined) opt.scale = saved.scale;
+        if (saved.rangeMode !== undefined) opt.rangeMode = saved.rangeMode;
+        if (saved.range !== undefined) opt.range = saved.range;
+        if (saved.password !== undefined) opt.password = saved.password;
+        if (saved.removed !== undefined) opt.removed = saved.removed;
+        if (saved.open !== undefined) opt.open = saved.open;
+      }
+    }
+  } catch { /* ignore */ }
+}
 
 function show(step) {
   state.step = step;
+  sessionStorage.setItem(PRINT_STEP_KEY, String(step));
   $$('[data-step]').forEach((s) => s.classList.toggle('hidden', Number(s.dataset.step) !== step));
   const bar = Math.min(step, 2) - 1; // details=0, upload/options=1
   $$('#stepbar .s').forEach((s, i) => {
@@ -30,6 +110,7 @@ if (cfg && !cfg.accepting.print) {
 }
 
 // ---------- Step 1 ----------
+$('#detailsForm').addEventListener('input', saveCustomerDetails);
 $('#detailsForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const name = $('#name');
@@ -37,6 +118,7 @@ $('#detailsForm').addEventListener('submit', (e) => {
   const badPhone = setFieldError(phone, !validPhone(phone.value));
   const badName = setFieldError(name, name.value.trim().length < 2);
   if (badName || badPhone) return;
+  saveCustomerDetails();
   if (savePrompt.shouldSave()) saveMe({ name: name.value.trim(), phone: phone.value.trim() }).catch(() => {});
   show(2);
 });
@@ -250,7 +332,10 @@ $('#uploadBtn').addEventListener('click', async () => {
   try {
     const order = await upload('/api/print-orders', fd, setP);
     state.order = order;
+    sessionStorage.setItem(PRINT_ORDER_KEY, order.id);
+    history.replaceState(null, '', '?resume=' + encodeURIComponent(order.id));
     await buildOpts(order);
+    saveOptsToStorage();
     myOrders.add(order);
     renderOpts();
     show(3);
@@ -400,6 +485,7 @@ $('#optList').addEventListener('click', (e) => {
       break;
   }
   renderOpts();
+  saveOptsToStorage();
   if (btn.dataset.act === 'rangeMode' && v === 'custom') $(`[data-id="${CSS.escape(f.id)}"] [data-range]`)?.focus();
 });
 // typing in copies / page range: update prices without re-rendering (keeps the keyboard open)
@@ -409,9 +495,13 @@ $('#optList').addEventListener('input', (e) => {
   if (e.target.matches('[data-range]')) f.range = e.target.value;
   if (e.target.matches('[data-pwd]')) f.password = e.target.value.trim();
   renderTotal();
+  saveOptsToStorage();
 });
 $('#optList').addEventListener('toggle', (e) => {
-  if (e.target.matches('details')) fileOf(e.target).open = e.target.open;
+  if (e.target.matches('details')) {
+    fileOf(e.target).open = e.target.open;
+    saveOptsToStorage();
+  }
 }, true);
 
 $('#payBtn').addEventListener('click', async () => {
@@ -429,6 +519,9 @@ $('#payBtn').addEventListener('click', async () => {
       const f = kept[0];
       await saveMe({ prefs: { color: f.color, sides: f.sides, paper: f.paper, orientation: f.orientation, scale: f.scale } }).catch(() => {});
     }
+    sessionStorage.removeItem(PRINT_ORDER_KEY);
+    sessionStorage.removeItem(PRINT_STEP_KEY);
+    if (state.order?.id) sessionStorage.removeItem('emitra_print_opts_' + state.order.id);
     location.href = '/order?id=' + encodeURIComponent(order.id);
   } catch (err) {
     toast(errorText(err), 'bad');
@@ -439,7 +532,11 @@ $('#payBtn').addEventListener('click', async () => {
 $('#restartBtn').addEventListener('click', async () => {
   if (state.order) {
     api(`/api/orders/${encodeURIComponent(state.order.id)}/cancel`, { method: 'POST', body: {} }).catch(() => {});
+    sessionStorage.removeItem('emitra_print_opts_' + state.order.id);
   }
+  sessionStorage.removeItem(PRINT_ORDER_KEY);
+  sessionStorage.removeItem(PRINT_STEP_KEY);
+  history.replaceState(null, '', location.pathname);
   state.order = null;
   state.opts = [];
   state.local = [];
@@ -452,17 +549,39 @@ window.addEventListener('langchange', () => {
   if (state.order) renderOpts();
 });
 
+loadSavedCustomer();
 renderLocal();
-show(1);
 
-// Coming back to an order whose options were never confirmed
-const resume = new URLSearchParams(location.search).get('resume');
-if (resume) {
-  api('/api/orders/' + encodeURIComponent(resume)).then(async (order) => {
-    if (order.status !== 'draft') { location.replace('/order?id=' + encodeURIComponent(order.id)); return; }
+const resumeId = new URLSearchParams(location.search).get('resume') || sessionStorage.getItem(PRINT_ORDER_KEY);
+if (resumeId) {
+  api('/api/orders/' + encodeURIComponent(resumeId)).then(async (order) => {
+    if (order.status !== 'draft') {
+      sessionStorage.removeItem(PRINT_ORDER_KEY);
+      sessionStorage.removeItem('emitra_print_opts_' + resumeId);
+      location.replace('/order?id=' + encodeURIComponent(order.id));
+      return;
+    }
     state.order = order;
+    sessionStorage.setItem(PRINT_ORDER_KEY, order.id);
+    history.replaceState(null, '', '?resume=' + encodeURIComponent(order.id));
     await buildOpts(order);
+    restoreSavedOpts(order.id);
     renderOpts();
     show(3);
-  }).catch(() => {});
+  }).catch(() => {
+    sessionStorage.removeItem(PRINT_ORDER_KEY);
+    const savedStep = sessionStorage.getItem(PRINT_STEP_KEY);
+    if (savedStep === '2' && $('#name').value.trim() && validPhone($('#phone').value)) {
+      show(2);
+    } else {
+      show(1);
+    }
+  });
+} else {
+  const savedStep = sessionStorage.getItem(PRINT_STEP_KEY);
+  if (savedStep === '2' && $('#name').value.trim() && validPhone($('#phone').value)) {
+    show(2);
+  } else {
+    show(1);
+  }
 }

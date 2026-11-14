@@ -16,7 +16,14 @@ function optsLine(f) {
 }
 
 await initPage();
-const id = new URLSearchParams(location.search).get('id') || '';
+let id = new URLSearchParams(location.search).get('id') || '';
+if (!id) {
+  const recent = myOrders.list()[0]?.id;
+  if (recent) {
+    id = recent;
+    history.replaceState(null, '', '?id=' + encodeURIComponent(id));
+  }
+}
 const root = $('#root');
 let order = null;
 let lastSig = '';

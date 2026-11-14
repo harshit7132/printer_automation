@@ -6,10 +6,74 @@ import { t, pick, apply } from './i18n.js';
 
 const cfg = await initPage();
 const MAX_MB = cfg?.maxFileMb || 30;
-const state = { res: [], ref: [] };
+const state = { step: 1, res: [], ref: [] };
 const preselect = new URLSearchParams(location.search).get('pkg');
 let savePrompt = { shouldSave: () => false };
-mountSavePrompt($('#savePrompt'), { name: $('#name'), phone: $('#phone'), email: $('#email') }).then((p) => { savePrompt = p; });
+mountSavePrompt($('#savePrompt'), { name: $('#name'), phone: $('#phone'), email: $('#email') }).then((p) => {
+  savePrompt = p;
+  loadDraft();
+});
+
+const DESIGN_DRAFT_KEY = 'emitra_design_draft';
+const CUSTOMER_STORAGE_KEY = 'emitra_customer_details';
+
+function saveDraft() {
+  try {
+    const val = (id) => ($('#' + id)?.value || '').trim();
+    const draft = {
+      name: val('name'),
+      phone: val('phone'),
+      email: val('email'),
+      service: $('input[name=service]:checked')?.value || '',
+      pkg: $('input[name=pkg]:checked')?.value || '',
+      title: val('title'),
+      desc: val('desc'),
+      textContent: val('textContent'),
+      size: $('#size')?.value || 'A4',
+      customSize: val('customSize'),
+      colors: val('colors'),
+      deadline: val('deadline'),
+      step: state.step || 1,
+    };
+    localStorage.setItem(DESIGN_DRAFT_KEY, JSON.stringify(draft));
+    if (draft.name || draft.phone) {
+      localStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify({ name: draft.name, phone: draft.phone, notes: '' }));
+    }
+  } catch { /* ignore */ }
+}
+
+function loadDraft() {
+  try {
+    let draft = null;
+    const raw = localStorage.getItem(DESIGN_DRAFT_KEY);
+    if (raw) draft = JSON.parse(raw);
+    const custRaw = localStorage.getItem(CUSTOMER_STORAGE_KEY);
+    const cust = custRaw ? JSON.parse(custRaw) : {};
+
+    const name = draft?.name || cust?.name || '';
+    const phone = draft?.phone || cust?.phone || '';
+    const email = draft?.email || '';
+
+    const nameEl = $('#name');
+    const phoneEl = $('#phone');
+    const emailEl = $('#email');
+    if (name && nameEl && !nameEl.value) nameEl.value = name;
+    if (phone && phoneEl && !phoneEl.value) phoneEl.value = phone;
+    if (email && emailEl && !emailEl.value) emailEl.value = email;
+
+    if (draft) {
+      if (draft.title && $('#title') && !$('#title').value) $('#title').value = draft.title;
+      if (draft.desc && $('#desc') && !$('#desc').value) $('#desc').value = draft.desc;
+      if (draft.textContent && $('#textContent') && !$('#textContent').value) $('#textContent').value = draft.textContent;
+      if (draft.size && $('#size')) $('#size').value = draft.size;
+      if (draft.customSize && $('#customSize') && !$('#customSize').value) $('#customSize').value = draft.customSize;
+      if (draft.colors && $('#colors') && !$('#colors').value) $('#colors').value = draft.colors;
+      if (draft.deadline && $('#deadline') && !$('#deadline').value) $('#deadline').value = draft.deadline;
+      return draft;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
 
 if (cfg && !cfg.accepting.design) {
   toast(t('e_closed_design'), 'bad');
@@ -17,6 +81,8 @@ if (cfg && !cfg.accepting.design) {
 }
 
 function show(step) {
+  state.step = step;
+  saveDraft();
   $$('[data-step]').forEach((s) => s.classList.toggle('hidden', Number(s.dataset.step) !== step));
   $$('#stepbar .s').forEach((s, i) => {
     s.classList.toggle('done', i < step - 1);
@@ -27,12 +93,12 @@ function show(step) {
 }
 $$('[data-back]').forEach((b) => b.addEventListener('click', () => show(Number(b.dataset.back))));
 
-function renderChoices() {
-  const checkedSvc = $('input[name=service]:checked')?.value;
+function renderChoices(savedPkg, savedSvc) {
+  const checkedSvc = $('input[name=service]:checked')?.value || savedSvc;
   $('#services').innerHTML = (cfg?.services || []).map((s) => `
     <label class="chip"><input type="radio" name="service" value="${esc(s)}" ${s === checkedSvc ? 'checked' : ''}><span>${esc(t('svc_' + s))}</span></label>`).join('');
 
-  const checkedPkg = $('input[name=pkg]:checked')?.value || preselect;
+  const checkedPkg = $('input[name=pkg]:checked')?.value || savedPkg || preselect;
   $('#pkgPick').innerHTML = (cfg?.packages || []).map((p) => `
     <label class="pkg-opt">
       <input type="radio" name="pkg" value="${p.id}" ${String(p.id) === String(checkedPkg) ? 'checked' : ''}>
@@ -45,11 +111,13 @@ function renderChoices() {
 }
 
 // Step 1
+$('#detailsForm').addEventListener('input', saveDraft);
 $('#detailsForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const badPhone = setFieldError($('#phone'), !validPhone($('#phone').value));
   const badName = setFieldError($('#name'), $('#name').value.trim().length < 2);
   if (badName || badPhone) return;
+  saveDraft();
   if (savePrompt.shouldSave()) {
     saveMe({ name: $('#name').value.trim(), phone: $('#phone').value.trim(), email: $('#email').value.trim() }).catch(() => {});
   }
@@ -57,6 +125,7 @@ $('#detailsForm').addEventListener('submit', (e) => {
 });
 
 // Step 2
+$('#briefForm').addEventListener('input', saveDraft);
 $('#briefForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const bad = [
@@ -68,11 +137,16 @@ $('#briefForm').addEventListener('submit', (e) => {
   const noSvc = !$('input[name=service]:checked');
   $('#serviceField').classList.toggle('invalid', noSvc);
   if (noSvc || noPkg) $('#serviceField').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  if (!bad.some(Boolean) && !noPkg && !noSvc) show(3);
+  if (!bad.some(Boolean) && !noPkg && !noSvc) {
+    saveDraft();
+    show(3);
+  }
 });
 $('#briefForm').addEventListener('change', (e) => {
   if (e.target.name === 'service') $('#serviceField').classList.remove('invalid');
   if (e.target.name === 'pkg') $('#pkgField').classList.remove('invalid');
+  saveDraft();
+  if (state.step === 3) renderSummary();
 });
 
 async function prepareFile(f) {
@@ -160,6 +234,7 @@ $('#submitBtn').addEventListener('click', async () => {
   setP(0);
   try {
     const order = await upload('/api/design-orders', fd, setP);
+    localStorage.removeItem(DESIGN_DRAFT_KEY);
     myOrders.add(order);
     location.href = '/order?id=' + encodeURIComponent(order.id);
   } catch (err) {
@@ -170,12 +245,24 @@ $('#submitBtn').addEventListener('click', async () => {
 });
 
 window.addEventListener('langchange', () => {
-  renderChoices();
+  const d = loadDraft();
+  renderChoices(d?.pkg, d?.service);
   renderFiles('res');
   renderFiles('ref');
   renderSummary();
   apply();
 });
 
-renderChoices();
-show(1);
+const savedDraft = loadDraft();
+renderChoices(savedDraft?.pkg, savedDraft?.service);
+
+const validDetails = ($('#name')?.value || '').trim().length >= 2 && validPhone($('#phone')?.value);
+const validBrief = ($('#title')?.value || '').trim() && ($('#desc')?.value || '').trim() && $('input[name=pkg]:checked') && $('input[name=service]:checked');
+
+if (savedDraft?.step === 3 && validDetails && validBrief) {
+  show(3);
+} else if (savedDraft?.step === 2 && validDetails) {
+  show(2);
+} else {
+  show(1);
+}
