@@ -46,11 +46,19 @@ export function runMaintenance() {
     setStatus(o.id, 'expired');
   }
 
-  const finished = db.prepare(`
+  // Purge finished print files after fileRetentionHours (default 72 hours for privacy)
+  const finishedPrint = db.prepare(`
     SELECT DISTINCT o.id FROM orders o JOIN files f ON f.order_id = o.id AND f.purged = 0
-    WHERE o.status IN ('printed','completed','rejected','cancelled','expired') AND o.updated_at < ?`)
+    WHERE o.type = 'print' AND o.status IN ('printed','rejected','cancelled','expired') AND o.updated_at < ?`)
     .all(now - config.fileRetentionHours * HOUR);
-  for (const o of finished) purgeOrderFiles(o.id);
+  for (const o of finishedPrint) purgeOrderFiles(o.id);
+
+  // Completed design files are kept for 30 days so guest customers can download them even weeks later
+  const finishedDesign = db.prepare(`
+    SELECT DISTINCT o.id FROM orders o JOIN files f ON f.order_id = o.id AND f.purged = 0
+    WHERE o.type = 'design' AND o.status IN ('completed','rejected','cancelled','expired') AND o.updated_at < ?`)
+    .all(now - 30 * 24 * HOUR);
+  for (const o of finishedDesign) purgeOrderFiles(o.id);
 
   db.prepare(`UPDATE orders SET pii = NULL, meta = NULL
     WHERE pii IS NOT NULL AND status IN ('printed','completed','rejected','cancelled','expired') AND updated_at < ?`)

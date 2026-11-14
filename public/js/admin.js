@@ -258,7 +258,11 @@ function actionsFor(o, ctx) {
       break;
   }
   if (['printed', 'completed'].includes(o.status) && o.customer?.phone) {
-    const msg = `नमस्ते ${o.customer?.name || ''}, आपका प्रिंट ऑर्डर ${o.code} तैयार है! कृपया e-Mitra काउंटर से प्राप्त करें।`;
+    const link = `${location.origin}/order?id=${encodeURIComponent(o.id)}`;
+    const shop = summary?.shopName || 'e-Mitra';
+    const msg = o.type === 'design'
+      ? `नमस्ते ${o.customer?.name || ''}, आपका डिज़ाइन ऑर्डर (${o.code}) तैयार है! 🎉\nअपनी डिज़ाइन फ़ाइलें यहाँ से सीधे डाउनलोड करें:\n${link}\n\nधन्यवाद - ${shop}`
+      : `नमस्ते ${o.customer?.name || ''}, आपका प्रिंट ऑर्डर (${o.code}) तैयार है! कृपया काउंटर से प्राप्त करें।\n\nधन्यवाद - ${shop}`;
     acts.push(`<a class="btn btn-sm btn-ghost" href="https://wa.me/91${esc(o.customer.phone)}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener noreferrer">💬 WhatsApp</a>`);
   }
   if (ctx === 'history' && o.status !== 'printing') acts.push(b('delete', '🗑 Delete', 'btn-ghost'));

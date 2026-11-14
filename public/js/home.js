@@ -1,4 +1,4 @@
-import { initPage, $, esc, rupees, myOrders } from './common.js';
+import { initPage, $, esc, rupees, myOrders, api, toast, errorText } from './common.js';
 import { t, pick, getLang } from './i18n.js';
 
 const cfg = await initPage();
@@ -42,6 +42,32 @@ function render() {
       <span class="muted small">${new Date(o.at).toLocaleDateString()}</span>
     </a>`).join('');
 }
+
+$('#trackHeader')?.addEventListener('click', () => {
+  const form = $('#trackForm');
+  form?.classList.toggle('hidden');
+  if (!form?.classList.contains('hidden')) $('#trackCode')?.focus();
+});
+
+$('#trackForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const code = ($('#trackCode')?.value || '').trim();
+  const phone = ($('#trackPhone')?.value || '').trim();
+  if (!code || !phone) return toast(t('err_order_code'), 'bad');
+
+  const btn = $('#trackForm button[type=submit]');
+  btn.disabled = true;
+  try {
+    const res = await api('/api/orders/lookup', { method: 'POST', body: { code, phone } });
+    if (res?.id) {
+      myOrders.add(res);
+      location.href = '/order?id=' + encodeURIComponent(res.id);
+    }
+  } catch (err) {
+    toast(errorText(err), 'bad');
+    btn.disabled = false;
+  }
+});
 
 render();
 window.addEventListener('langchange', render);

@@ -102,7 +102,7 @@ orderEvents.once(`order:${testOrderId}`, testHandler);
 emitOrderUpdate(testOrderId);
 assert.ok(eventReceived, 'orderEvents must fire on emitOrderUpdate');
 
-// 7. Automated Daily Database Backup
+// 8. Automated Daily Database Backup
 console.log('✔ Testing Database Backup Routine...');
 backupDatabase();
 const backupDir = path.resolve('data/backups');
@@ -110,6 +110,20 @@ assert.ok(fs.existsSync(backupDir), 'Backup directory should exist');
 const backups = fs.readdirSync(backupDir).filter((f) => f.startsWith('app-') && f.endsWith('.db'));
 assert.ok(backups.length > 0, 'At least one backup file should be generated');
 
+// 9. Order Lookup by Code & Phone
+console.log('✔ Testing Order Lookup Logic...');
+const lookupId = 'lookup_test_999';
+const lookupCode = 'D-9999';
+const lookupPhone = '9876543210';
+db.prepare("INSERT INTO orders (id, code, type, status, amount, pii, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)")
+  .run(lookupId, lookupCode, 'design', 'completed', 25000, encryptJSON({ phone: lookupPhone, name: 'Suresh' }), Date.now(), Date.now());
+
+const found = db.prepare('SELECT * FROM orders WHERE code = ?').get(lookupCode);
+assert.ok(found, 'Order must be found by code');
+const foundPii = decryptJSON(found.pii);
+assert.equal(foundPii.phone, lookupPhone, 'Decrypted phone must match for authorization');
+db.prepare('DELETE FROM orders WHERE id = ?').run(lookupId);
+
 console.log('\n=========================================');
-console.log('🎉 ALL TESTS PASSED SUCCESSFULLY! (7/7)');
+console.log('🎉 ALL TESTS PASSED SUCCESSFULLY! (9/9)');
 console.log('=========================================\n');

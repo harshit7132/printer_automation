@@ -162,6 +162,23 @@ r.post('/design-orders', createLimiter, upload.fields([{ name: 'resources', maxC
 }));
 
 // ---------- Shared ----------
+r.post('/orders/lookup', readLimiter, asyncH(async (req, res) => {
+  const code = cleanText(req.body?.code, 20).toUpperCase();
+  const phone = cleanPhone(req.body?.phone);
+  if (!code || !phone) throw new HttpError(400, 'bad_request', 'Please enter your Order Code and Phone Number');
+
+  const order = db.prepare('SELECT * FROM orders WHERE code = ?').get(code);
+  if (!order) throw new HttpError(404, 'not_found', 'No order found with this code');
+
+  const pii = decryptJSON(order.pii) || {};
+  const orderPhone = cleanPhone(pii.phone || '');
+  if (orderPhone !== phone) {
+    throw new HttpError(403, 'mismatch', 'Phone number does not match this order');
+  }
+
+  res.json({ id: order.id, code: order.code, type: order.type, status: order.status });
+}));
+
 r.get('/orders/:id', readLimiter, asyncH(async (req, res) => {
   res.json(await publicView(mustLoad(req.params.id)));
 }));

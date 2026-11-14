@@ -57,6 +57,34 @@
       <div class="recent" id="recent"></div>
     </section>
 
+    <section class="section" id="trackSection">
+      <div class="card" style="padding:14px 16px;background:var(--surface-2);border-radius:14px;border:1px solid var(--line)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer" id="trackHeader">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:1.3rem">🔍</span>
+            <div>
+              <b data-i18n="track_title" style="display:block">Track or download an order</b>
+              <p class="muted small" style="margin:2px 0 0" data-i18n="track_sub">Enter your Order Code (e.g. D-0005) & mobile number</p>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-ghost" type="button" id="toggleTrackBtn" data-i18n="track_open">Track</button>
+        </div>
+        <form id="trackForm" class="hidden" style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--line)" novalidate>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+            <div class="field" style="margin:0">
+              <label for="trackCode" data-i18n="f_order_code">Order Code</label>
+              <input id="trackCode" type="text" placeholder="e.g. D-0005" style="text-transform:uppercase;font-weight:700" required>
+            </div>
+            <div class="field" style="margin:0">
+              <label for="trackPhone" data-i18n="f_phone">Mobile Number</label>
+              <input id="trackPhone" type="tel" placeholder="10-digit mobile" inputmode="numeric" required>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block" type="submit" style="margin-top:10px" data-i18n="track_btn">Find Order & Download</button>
+        </form>
+      </div>
+    </section>
+
     <section class="section hidden" id="offersSection">
       <h2 data-i18n="offers_title">Offers</h2>
       <div class="banners" id="banners"></div>
