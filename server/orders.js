@@ -112,6 +112,7 @@ export async function publicView(o) {
 
 /** Full view for the owner. */
 export function adminView(o) {
+  const pii = decryptJSON(o.pii) || {};
   return {
     id: o.id,
     code: o.code,
@@ -127,7 +128,7 @@ export function adminView(o) {
     error: o.error,
     adminNote: o.admin_note,
     queuePosition: queuePosition(o),
-    customer: decryptJSON(o.pii) || {},
+    customer: pii,
     brief: decryptJSON(o.meta) || null,
     account: o.customer_uid ? (db.prepare('SELECT provider FROM customers WHERE uid = ?').get(o.customer_uid)?.provider || 'deleted') : null,
     files: orderFiles(o.id).map((f) => ({

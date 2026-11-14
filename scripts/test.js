@@ -68,7 +68,32 @@ assert.equal(normalized.selPages, 4); // 1, 2, 3, 5 = 4 pages
 assert.equal(normalized.opts.password, 'RAME1992', 'PDF Password must be preserved in options');
 assert.equal(normalized.opts.encrypted, true, 'Encrypted flag must be set');
 
-// 6. Real-time Events (SSE Bus)
+// 6. Admin View & Order Serializer
+console.log('✔ Testing Admin Order View Serialization...');
+const mockOrder = {
+  id: 'ord_test_123',
+  code: 'P-0001',
+  type: 'print',
+  status: 'payment_submitted',
+  amount: 5000,
+  created_at: Date.now(),
+  updated_at: Date.now(),
+  paid_at: Date.now(),
+  verified_at: null,
+  done_at: null,
+  error: null,
+  admin_note: null,
+  customer_uid: null,
+  pii: encryptJSON({ name: 'Harsh', phone: '9876543210', paymentMode: 'upi' }),
+  meta: encryptJSON({ notes: 'Urgent' }),
+};
+const { adminView } = await import('../server/orders.js');
+const av = adminView(mockOrder);
+assert.equal(av.code, 'P-0001');
+assert.equal(av.customer.name, 'Harsh');
+assert.equal(av.paymentMode, 'upi');
+
+// 7. Real-time Events (SSE Bus)
 console.log('✔ Testing Real-time Event Bus...');
 let eventReceived = false;
 const testOrderId = 'test-order-999';
